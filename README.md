@@ -79,7 +79,9 @@ let results = classifier.predict_batch(&refs)?;
 
 ## CLI Usage
 
-Build the CLI tool:
+A basic CLI tool is included for quick testing of the library. It is not intended for production analysis tasks.
+
+Build:
 
 ```bash
 cargo build --release --bin birdnet-analyze
