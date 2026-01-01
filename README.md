@@ -1,5 +1,11 @@
 # birdnet-onnx
 
+[![CI](https://github.com/tphakala/rust-birdnet-onnx/actions/workflows/ci.yml/badge.svg)](https://github.com/tphakala/rust-birdnet-onnx/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/birdnet-onnx.svg)](https://crates.io/crates/birdnet-onnx)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/rust-1.92%2B-blue.svg)](https://www.rust-lang.org/)
+[![Sponsor](https://img.shields.io/badge/sponsor-GitHub-pink.svg)](https://github.com/sponsors/tphakala)
+
 A Rust library for running inference on BirdNET and Perch ONNX models with CUDA GPU support.
 
 ## Features
@@ -25,7 +31,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-birdnet-onnx = { git = "https://github.com/tphakala/rust-birdnet-onnx" }
+birdnet-onnx = "1.0"
 ```
 
 ## Library Usage
