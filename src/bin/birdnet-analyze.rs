@@ -8,6 +8,10 @@ use clap::Parser;
 use std::path::PathBuf;
 use std::time::Instant;
 
+/// Normalization factor for 16-bit signed audio samples.
+/// This is 2^15 (32768), used to convert i16 samples to f32 range [-1.0, 1.0].
+const I16_NORMALIZATION_FACTOR: f32 = 32768.0;
+
 /// Analyze WAV files for bird species using BirdNET/Perch ONNX models.
 #[derive(Parser, Debug)]
 #[command(name = "birdnet-analyze")]
@@ -188,7 +192,7 @@ fn read_wav(path: &PathBuf) -> Result<(Vec<f32>, u32, f32)> {
     // Read samples and convert to f32 [-1.0, 1.0]
     let samples: std::result::Result<Vec<f32>, _> = reader
         .into_samples::<i16>()
-        .map(|s| s.map(|v| f32::from(v) / 32768.0))
+        .map(|s| s.map(|v| f32::from(v) / I16_NORMALIZATION_FACTOR))
         .collect();
 
     let samples = samples.map_err(|e| birdnet_onnx::Error::ModelDetection {
