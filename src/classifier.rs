@@ -431,7 +431,9 @@ impl Classifier {
                     .collect()
             }
             ModelType::BirdNetV30 | ModelType::PerchV2 => {
-                let embedding_dim = self.inner.config.embedding_dim.unwrap_or(0);
+                let embedding_dim = self.inner.config.embedding_dim.ok_or_else(|| {
+                    Error::Inference("embedding_dim missing for model that requires embeddings".into())
+                })?;
                 let emb_flat = extract_tensor_data(outputs, 0)?;
                 let logits_flat = extract_tensor_data(outputs, 1)?;
 
