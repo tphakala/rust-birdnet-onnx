@@ -1,0 +1,124 @@
+use thiserror::Error;
+
+/// Errors that can occur during classifier operations.
+#[derive(Debug, Error)]
+pub enum Error {
+    /// Audio segment has wrong number of samples.
+    #[error("input size mismatch: expected {expected} samples, got {got}")]
+    InputSize {
+        /// Expected sample count.
+        expected: usize,
+        /// Actual sample count.
+        got: usize,
+    },
+
+    /// One segment in a batch has wrong number of samples.
+    #[error("batch input size mismatch: segment {index} has {got} samples, expected {expected}")]
+    BatchInputSize {
+        /// Index of the problematic segment.
+        index: usize,
+        /// Expected sample count.
+        expected: usize,
+        /// Actual sample count.
+        got: usize,
+    },
+
+    /// Failed to detect model type from ONNX structure.
+    #[error("model detection failed: {reason}")]
+    ModelDetection {
+        /// Reason for detection failure.
+        reason: String,
+    },
+
+    /// Number of labels doesn't match model output size.
+    #[error("label count mismatch: model expects {expected}, got {got}")]
+    LabelCount {
+        /// Expected label count.
+        expected: usize,
+        /// Actual label count.
+        got: usize,
+    },
+
+    /// Model path was not provided to builder.
+    #[error("model path required")]
+    ModelPathRequired,
+
+    /// Labels were not provided to builder.
+    #[error("labels required (provide path or vec)")]
+    LabelsRequired,
+
+    /// Failed to load ONNX model.
+    #[error("failed to load model: {0}")]
+    ModelLoad(#[from] ort::Error),
+
+    /// Failed to load labels from file.
+    #[error("failed to load labels from {path}: {reason}")]
+    LabelLoad {
+        /// Path that failed to load.
+        path: String,
+        /// Reason for failure.
+        reason: String,
+    },
+
+    /// Failed to parse label file content.
+    #[error("failed to parse labels: {0}")]
+    LabelParse(String),
+
+    /// Inference execution failed.
+    #[error("inference failed: {0}")]
+    Inference(String),
+}
+
+/// Result type alias using [`Error`].
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    #[test]
+    fn test_input_size_error_display() {
+        let err = Error::InputSize {
+            expected: 144_000,
+            got: 100_000,
+        };
+        assert_eq!(
+            err.to_string(),
+            "input size mismatch: expected 144000 samples, got 100000"
+        );
+    }
+
+    #[test]
+    fn test_batch_input_size_error_display() {
+        let err = Error::BatchInputSize {
+            index: 3,
+            expected: 144_000,
+            got: 50_000,
+        };
+        assert_eq!(
+            err.to_string(),
+            "batch input size mismatch: segment 3 has 50000 samples, expected 144000"
+        );
+    }
+
+    #[test]
+    fn test_model_detection_error_display() {
+        let err = Error::ModelDetection {
+            reason: "unsupported model".to_string(),
+        };
+        assert_eq!(err.to_string(), "model detection failed: unsupported model");
+    }
+
+    #[test]
+    fn test_label_count_error_display() {
+        let err = Error::LabelCount {
+            expected: 6522,
+            got: 1000,
+        };
+        assert_eq!(
+            err.to_string(),
+            "label count mismatch: model expects 6522, got 1000"
+        );
+    }
+}

@@ -1,0 +1,72 @@
+[package]
+name = "birdnet-onnx"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.92"
+description = "Bird species detection using BirdNET and Perch ONNX models"
+license = "MIT"
+repository = "https://github.com/your-username/birdnet-onnx"
+readme = "README.md"
+keywords = ["birdnet", "onnx", "audio", "machine-learning", "bioacoustics"]
+categories = ["science", "multimedia::audio"]
+
+[dependencies]
+ort = { version = "2.0.0-rc.10", features = ["cuda"] }
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+csv = "1"
+ndarray = "0.16"
+clap = { version = "4", features = ["derive"] }
+hound = "3"
+
+[dev-dependencies]
+tempfile = "3"
+
+# ============================================================================
+# Strict Linting Configuration
+# ============================================================================
+
+[lints.rust]
+# Deny unsafe code - this library should be 100% safe Rust
+unsafe_code = "deny"
+
+# Warnings promoted to errors
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+# ---- Correctness ----
+# These are almost always bugs
+correctness = { level = "deny", priority = -1 }
+
+# ---- Pedantic ----
+# Enable pedantic lints (strict but reasonable)
+pedantic = { level = "warn", priority = -1 }
+
+# ---- Restriction ----
+# Selected restriction lints for better code quality
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
+dbg_macro = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+
+# ---- Nursery ----
+# Useful nursery lints (may have false positives)
+nursery = { level = "warn", priority = -1 }
+
+# ---- Cargo ----
+cargo = { level = "warn", priority = -1 }
+
+# ---- Overrides ----
+# Allow these where pedantic is too strict
+module_name_repetitions = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"

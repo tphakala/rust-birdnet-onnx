@@ -1,0 +1,35 @@
+# Build artifacts
+/target/
+
+# Cargo lock for libraries (optional - keep for binaries)
+# Cargo.lock
+
+# Editor/IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Claude Code
+.claude/
+
+# Design plans (internal)
+docs/plans/
+
+# Test fixtures (large model files)
+tests/fixtures/*.onnx
+tests/fixtures/*_labels.txt
+tests/fixtures/*_labels.csv
+tests/fixtures/*_labels.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log

@@ -1,0 +1,21 @@
+# Clippy configuration
+
+# Cognitive complexity threshold (default is 25)
+cognitive-complexity-threshold = 20
+
+# Maximum lines in a function (for clippy::too_many_lines)
+too-many-lines-threshold = 100
+
+# Type complexity threshold
+type-complexity-threshold = 250
+
+# Disallowed methods - prevent common mistakes
+disallowed-methods = [
+    { path = "std::option::Option::unwrap", reason = "Use `ok_or` or `ok_or_else` with proper error handling" },
+    { path = "std::result::Result::unwrap", reason = "Use `?` operator or handle the error explicitly" },
+    { path = "std::option::Option::expect", reason = "Use `ok_or` or `ok_or_else` with proper error handling" },
+    { path = "std::result::Result::expect", reason = "Use `?` operator or handle the error explicitly" },
+]
+
+# Allowed wildcard imports (only in tests)
+allowed-wildcard-imports = []

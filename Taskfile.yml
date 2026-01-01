@@ -1,0 +1,189 @@
+version: '3'
+
+vars:
+  BINARY: birdnet-analyze
+
+# Ensure cargo is available
+env:
+  PATH: '{{.HOME}}/.cargo/bin:{{.PATH}}'
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  # ============================================================================
+  # Build Tasks
+  # ============================================================================
+
+  build:
+    desc: Build in debug mode
+    cmds:
+      - cargo build
+
+  build:release:
+    desc: Build in release mode (optimized)
+    cmds:
+      - cargo build --release
+
+  build:cli:
+    desc: Build CLI binary in release mode
+    cmds:
+      - cargo build --release --bin {{.BINARY}}
+
+  # ============================================================================
+  # Test Tasks
+  # ============================================================================
+
+  test:
+    desc: Run all unit tests
+    cmds:
+      - cargo test
+
+  test:all:
+    desc: Run all tests including integration tests (requires model fixtures)
+    cmds:
+      - cargo test -- --include-ignored
+
+  test:integration:
+    desc: Run only integration tests (requires model fixtures)
+    cmds:
+      - cargo test --test integration_test -- --ignored
+
+  test:watch:
+    desc: Run tests on file changes (requires cargo-watch)
+    cmds:
+      - cargo watch -x test
+
+  # ============================================================================
+  # Lint & Format Tasks
+  # ============================================================================
+
+  lint:
+    desc: Run clippy linter
+    cmds:
+      - cargo clippy --all-targets
+
+  lint:fix:
+    desc: Run clippy and apply automatic fixes
+    cmds:
+      - cargo clippy --all-targets --fix --allow-dirty
+
+  fmt:
+    desc: Format code with rustfmt
+    cmds:
+      - cargo fmt
+
+  fmt:check:
+    desc: Check code formatting without changes
+    cmds:
+      - cargo fmt -- --check
+
+  # ============================================================================
+  # Check Tasks
+  # ============================================================================
+
+  check:
+    desc: Quick compilation check (faster than build)
+    cmds:
+      - cargo check
+
+  check:all:
+    desc: Check all targets including tests
+    cmds:
+      - cargo check --all-targets
+
+  # ============================================================================
+  # Clean Tasks
+  # ============================================================================
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - cargo clean
+
+  clean:release:
+    desc: Remove only release build artifacts
+    cmds:
+      - rm -rf target/release
+
+  # ============================================================================
+  # Documentation Tasks
+  # ============================================================================
+
+  doc:
+    desc: Generate documentation
+    cmds:
+      - cargo doc --no-deps
+
+  doc:open:
+    desc: Generate and open documentation in browser
+    cmds:
+      - cargo doc --no-deps --open
+
+  # ============================================================================
+  # CI Tasks
+  # ============================================================================
+
+  ci:
+    desc: Run all CI checks (format, lint, test)
+    cmds:
+      - task: fmt:check
+      - task: lint
+      - task: test
+
+  # ============================================================================
+  # Run Tasks
+  # ============================================================================
+
+  run:
+    desc: Run CLI with arguments (use -- to pass args)
+    cmds:
+      - cargo run --release --bin {{.BINARY}} -- {{.CLI_ARGS}}
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default "--help"}}'
+
+  # ============================================================================
+  # Development Tasks
+  # ============================================================================
+
+  dev:
+    desc: Development loop - check, lint, test
+    cmds:
+      - task: check
+      - task: lint
+      - task: test
+
+  watch:
+    desc: Watch for changes and run checks (requires cargo-watch)
+    cmds:
+      - cargo watch -x check -x clippy -x test
+
+  # ============================================================================
+  # Setup Tasks
+  # ============================================================================
+
+  setup:
+    desc: Install development tools
+    cmds:
+      - rustup component add clippy rustfmt
+      - cargo install cargo-watch
+    status:
+      - which cargo-watch
+
+  setup:fixtures:
+    desc: Show instructions for setting up test fixtures
+    cmds:
+      - |
+        echo "To run integration tests, add model files to tests/fixtures/:"
+        echo ""
+        echo "  tests/fixtures/"
+        echo "  ├── birdnet_v24.onnx"
+        echo "  ├── birdnet_v24_labels.txt"
+        echo "  ├── birdnet_v30.onnx"
+        echo "  ├── birdnet_v30_labels.csv"
+        echo "  ├── perch_v2.onnx"
+        echo "  └── perch_v2_labels.json"
+        echo ""
+        echo "Then run: task test:integration"
