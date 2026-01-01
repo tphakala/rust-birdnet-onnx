@@ -1,11 +1,11 @@
 [package]
 name = "birdnet-onnx"
-version = "0.1.0"
-edition = "2021"
+version = "1.0.0"
+edition = "2024"
 rust-version = "1.92"
 description = "Bird species detection using BirdNET and Perch ONNX models"
 license = "MIT"
-repository = "https://github.com/your-username/birdnet-onnx"
+repository = "https://github.com/tphakala/rust-birdnet-onnx"
 readme = "README.md"
 keywords = ["birdnet", "onnx", "audio", "machine-learning", "bioacoustics"]
 categories = ["science", "multimedia::audio"]
