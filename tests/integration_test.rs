@@ -392,10 +392,12 @@ fn test_missing_model_path() {
     let result = Classifier::builder().labels_path("labels.txt").build();
 
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("model path required"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("model path required")
+    );
 }
 
 #[test]
@@ -432,10 +434,12 @@ fn test_label_count_mismatch() -> Result<()> {
         .build();
 
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("label count mismatch"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("label count mismatch")
+    );
 
     Ok(())
 }

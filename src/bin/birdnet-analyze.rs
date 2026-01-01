@@ -176,10 +176,7 @@ fn read_wav(path: &PathBuf) -> Result<(Vec<f32>, u32, f32)> {
 
     if spec.bits_per_sample != 16 {
         return Err(birdnet_onnx::Error::ModelDetection {
-            reason: format!(
-                "WAV must be 16-bit, got {}-bit",
-                spec.bits_per_sample
-            ),
+            reason: format!("WAV must be 16-bit, got {}-bit", spec.bits_per_sample),
         });
     }
 
@@ -218,7 +215,11 @@ fn chunk_audio(
     overlap_secs: f32,
     sample_rate: u32,
 ) -> Vec<(f32, Vec<f32>)> {
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     let overlap_samples = (overlap_secs * sample_rate as f32) as usize;
 
     let step = segment_samples.saturating_sub(overlap_samples);
@@ -247,7 +248,11 @@ fn chunk_audio(
 }
 
 /// Format time offset as MM:SS.d
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
 fn format_time(secs: f32) -> String {
     let total_secs = secs as u32;
     let mins = total_secs / 60;

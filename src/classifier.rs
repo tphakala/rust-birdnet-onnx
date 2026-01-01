@@ -166,9 +166,12 @@ impl ClassifierBuilder {
 
 /// Extract input tensor shape from session
 fn extract_input_shape(session: &Session) -> Result<Vec<i64>> {
-    let inputs = session.inputs.first().ok_or_else(|| Error::ModelDetection {
-        reason: "model has no inputs".to_string(),
-    })?;
+    let inputs = session
+        .inputs
+        .first()
+        .ok_or_else(|| Error::ModelDetection {
+            reason: "model has no inputs".to_string(),
+        })?;
 
     let shape = inputs
         .input_type
@@ -270,10 +273,8 @@ impl Classifier {
         }
 
         // Create input tensor [1, sample_count]
-        let input_array =
-            Array2::from_shape_vec((1, segment.len()), segment.to_vec()).map_err(|e| {
-                Error::Inference(format!("failed to create input array: {e}"))
-            })?;
+        let input_array = Array2::from_shape_vec((1, segment.len()), segment.to_vec())
+            .map_err(|e| Error::Inference(format!("failed to create input array: {e}")))?;
 
         let input_value = Value::from_array(input_array)
             .map_err(|e| Error::Inference(format!("failed to create input tensor: {e}")))?;
@@ -335,10 +336,8 @@ impl Classifier {
             batch_data.extend_from_slice(seg);
         }
 
-        let input_array =
-            Array2::from_shape_vec((batch_size, expected), batch_data).map_err(|e| {
-                Error::Inference(format!("failed to create batch array: {e}"))
-            })?;
+        let input_array = Array2::from_shape_vec((batch_size, expected), batch_data)
+            .map_err(|e| Error::Inference(format!("failed to create batch array: {e}")))?;
 
         let input_value = Value::from_array(input_array)
             .map_err(|e| Error::Inference(format!("failed to create input tensor: {e}")))?;
@@ -360,10 +359,7 @@ impl Classifier {
     }
 
     /// Process single inference outputs
-    fn process_outputs(
-        &self,
-        outputs: &ort::session::SessionOutputs,
-    ) -> Result<PredictionResult> {
+    fn process_outputs(&self, outputs: &ort::session::SessionOutputs) -> Result<PredictionResult> {
         let model_type = self.inner.config.model_type;
 
         let (embeddings, logits) = match model_type {
@@ -432,7 +428,9 @@ impl Classifier {
             }
             ModelType::BirdNetV30 | ModelType::PerchV2 => {
                 let embedding_dim = self.inner.config.embedding_dim.ok_or_else(|| {
-                    Error::Inference("embedding_dim missing for model that requires embeddings".into())
+                    Error::Inference(
+                        "embedding_dim missing for model that requires embeddings".into(),
+                    )
                 })?;
                 let emb_flat = extract_tensor_data(outputs, 0)?;
                 let logits_flat = extract_tensor_data(outputs, 1)?;
@@ -470,13 +468,13 @@ impl Classifier {
 /// Extract tensor data from session outputs by index
 fn extract_tensor_data(outputs: &ort::session::SessionOutputs, index: usize) -> Result<Vec<f32>> {
     let output_names: Vec<_> = outputs.keys().collect();
-    let name = output_names.get(index).ok_or_else(|| {
-        Error::Inference(format!("missing output tensor at index {index}"))
-    })?;
+    let name = output_names
+        .get(index)
+        .ok_or_else(|| Error::Inference(format!("missing output tensor at index {index}")))?;
 
-    let tensor = outputs.get(*name).ok_or_else(|| {
-        Error::Inference(format!("missing output tensor '{name}'"))
-    })?;
+    let tensor = outputs
+        .get(*name)
+        .ok_or_else(|| Error::Inference(format!("missing output tensor '{name}'")))?;
 
     let (_, data) = tensor
         .try_extract_tensor::<f32>()

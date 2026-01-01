@@ -94,6 +94,11 @@ tasks:
     cmds:
       - cargo check --all-targets
 
+  audit:
+    desc: Check for security vulnerabilities in dependencies
+    cmds:
+      - cargo audit
+
   # ============================================================================
   # Clean Tasks
   # ============================================================================
@@ -131,6 +136,7 @@ tasks:
     cmds:
       - task: fmt:check
       - task: lint
+      - task: audit
       - task: test
 
   # ============================================================================
@@ -169,8 +175,10 @@ tasks:
     cmds:
       - rustup component add clippy rustfmt
       - cargo install cargo-watch
+      - cargo install cargo-audit
     status:
       - which cargo-watch
+      - which cargo-audit
 
   setup:fixtures:
     desc: Show instructions for setting up test fixtures

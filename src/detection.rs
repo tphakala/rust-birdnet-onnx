@@ -85,10 +85,7 @@ fn build_config_with_override(
         ModelType::BirdNetV24 => {
             if output_shapes.len() != 1 {
                 return Err(Error::ModelDetection {
-                    reason: format!(
-                        "BirdNET v2.4 expects 1 output, got {}",
-                        output_shapes.len()
-                    ),
+                    reason: format!("BirdNET v2.4 expects 1 output, got {}", output_shapes.len()),
                 });
             }
             (None, extract_last_dim(&output_shapes[0])?)
@@ -128,7 +125,7 @@ fn extract_sample_count(shape: &[i64]) -> Result<usize> {
         _ => {
             return Err(Error::ModelDetection {
                 reason: format!("unexpected input shape: {shape:?}"),
-            })
+            });
         }
     };
 

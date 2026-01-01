@@ -154,8 +154,7 @@ mod tests {
 
     #[test]
     fn test_parse_csv_labels_with_header() {
-        let content =
-            "label,scientific_name\nAmerican Robin,Turdus migratorius\nNorthern Cardinal,Cardinalis cardinalis";
+        let content = "label,scientific_name\nAmerican Robin,Turdus migratorius\nNorthern Cardinal,Cardinalis cardinalis";
         let labels = parse_csv_labels(content).unwrap();
         assert_eq!(labels, vec!["American Robin", "Northern Cardinal"]);
     }

@@ -148,7 +148,11 @@ mod tests {
 
     #[test]
     fn test_sample_count_matches_rate_times_duration() {
-        for model in [ModelType::BirdNetV24, ModelType::BirdNetV30, ModelType::PerchV2] {
+        for model in [
+            ModelType::BirdNetV24,
+            ModelType::BirdNetV30,
+            ModelType::PerchV2,
+        ] {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let expected = (model.sample_rate() as f32 * model.segment_duration()) as usize;
             assert_eq!(model.sample_count(), expected);
