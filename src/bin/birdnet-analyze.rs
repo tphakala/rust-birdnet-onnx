@@ -3,7 +3,7 @@
 #![allow(clippy::print_stdout)] // CLI tool needs stdout
 #![allow(clippy::print_stderr)] // CLI tool needs stderr
 
-use birdnet_onnx::{Classifier, ModelType, Result};
+use birdnet_onnx::{Classifier, ModelType, Result, init_runtime};
 use clap::Parser;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -54,6 +54,9 @@ fn main() {
 
 fn run() -> Result<()> {
     let args = Args::parse();
+
+    // Initialize ONNX Runtime (auto-detects bundled libraries)
+    init_runtime()?;
 
     // Parse model type override if provided
     let model_type_override = match args.model_type.as_deref() {

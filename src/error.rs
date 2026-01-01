@@ -67,6 +67,10 @@ pub enum Error {
     /// Inference execution failed.
     #[error("inference failed: {0}")]
     Inference(String),
+
+    /// Failed to initialize ONNX Runtime.
+    #[error("failed to initialize ONNX Runtime: {0}")]
+    RuntimeInit(String),
 }
 
 /// Result type alias using [`Error`].

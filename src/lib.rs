@@ -37,12 +37,14 @@ mod detection;
 mod error;
 mod labels;
 mod postprocess;
+mod runtime;
 #[cfg(test)]
 mod testutil;
 mod types;
 
 pub use classifier::{Classifier, ClassifierBuilder};
 pub use error::{Error, Result};
+pub use runtime::init_runtime;
 pub use types::{LabelFormat, ModelConfig, ModelType, Prediction, PredictionResult};
 
 // Re-export ort execution providers for convenience
