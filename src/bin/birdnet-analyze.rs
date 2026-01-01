@@ -186,13 +186,14 @@ fn read_wav(path: &PathBuf) -> Result<(Vec<f32>, u32, f32)> {
     }
 
     // Read samples and convert to f32 [-1.0, 1.0]
-    let samples: Vec<f32> = reader
+    let samples: std::result::Result<Vec<f32>, _> = reader
         .into_samples::<i16>()
-        .map(|s| {
-            s.map(|v| f32::from(v) / 32768.0)
-                .unwrap_or(0.0)
-        })
+        .map(|s| s.map(|v| f32::from(v) / 32768.0))
         .collect();
+
+    let samples = samples.map_err(|e| birdnet_onnx::Error::ModelDetection {
+        reason: format!("failed to read WAV samples: {e}"),
+    })?;
 
     if samples.is_empty() {
         return Err(birdnet_onnx::Error::ModelDetection {
