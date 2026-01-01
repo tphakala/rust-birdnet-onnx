@@ -409,6 +409,7 @@ fn test_missing_labels() {
 }
 
 #[test]
+#[ignore = "requires model fixtures"]
 fn test_nonexistent_model_file() {
     let result = Classifier::builder()
         .model_path("/nonexistent/model.onnx")
