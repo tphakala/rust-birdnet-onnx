@@ -137,6 +137,18 @@ task lint          # Run clippy
 task ci            # Run all CI checks
 ```
 
+## Acknowledgments
+
+This library provides Rust bindings for running inference on models from these projects:
+
+- [BirdNET-Analyzer](https://github.com/birdnet-team/BirdNET-Analyzer) - Bird sound identification by the K. Lisa Yang Center for Conservation Bioacoustics at the Cornell Lab of Ornithology and Chemnitz University of Technology
+- [Perch](https://github.com/google-research/perch) - Bioacoustics research by Google Research
+
+Built with:
+
+- [ONNX Runtime](https://github.com/microsoft/onnxruntime) - Cross-platform inference engine by Microsoft
+- [ort](https://github.com/pykeio/ort) - Rust bindings for ONNX Runtime
+
 ## License
 
 MIT
