@@ -1,6 +1,6 @@
 [package]
 name = "birdnet-onnx"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2024"
 rust-version = "1.92"
 description = "Bird species detection using BirdNET and Perch ONNX models"
