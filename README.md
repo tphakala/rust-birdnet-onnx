@@ -1,7 +1,10 @@
 # birdnet-onnx
 
 [![CI](https://github.com/tphakala/rust-birdnet-onnx/actions/workflows/ci.yml/badge.svg)](https://github.com/tphakala/rust-birdnet-onnx/actions/workflows/ci.yml)
+[![Security](https://github.com/tphakala/rust-birdnet-onnx/actions/workflows/security.yml/badge.svg)](https://github.com/tphakala/rust-birdnet-onnx/actions/workflows/security.yml)
+[![codecov](https://codecov.io/gh/tphakala/rust-birdnet-onnx/graph/badge.svg)](https://codecov.io/gh/tphakala/rust-birdnet-onnx)
 [![Crates.io](https://img.shields.io/crates/v/birdnet-onnx.svg)](https://crates.io/crates/birdnet-onnx)
+[![docs.rs](https://docs.rs/birdnet-onnx/badge.svg)](https://docs.rs/birdnet-onnx)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.92%2B-blue.svg)](https://www.rust-lang.org/)
 [![Sponsor](https://img.shields.io/badge/sponsor-GitHub-pink.svg)](https://github.com/sponsors/tphakala)
