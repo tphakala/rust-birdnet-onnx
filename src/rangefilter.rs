@@ -352,11 +352,7 @@ impl RangeFilter {
             .collect();
 
         // Sort by score descending
-        scores.sort_unstable_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        scores.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
 
         Ok(scores)
     }
@@ -404,7 +400,7 @@ mod tests {
         // weeksFromMonths = (12 - 1) * 4 = 44
         // weekInMonth = (31 - 1) / 7 + 1 = 5
         // week = 44 + 5 = 49
-        // Note: BirdNET uses 48-week year, so this wraps
+        // Note: BirdNET uses 48-week year, but days 29-31 can exceed 48
         let week = calculate_week(12, 31);
         assert_eq!(week, 49.0);
     }
