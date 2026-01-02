@@ -37,6 +37,7 @@ mod detection;
 mod error;
 mod labels;
 mod postprocess;
+mod rangefilter;
 mod runtime;
 #[cfg(test)]
 mod testutil;
