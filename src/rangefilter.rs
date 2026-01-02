@@ -52,6 +52,28 @@ pub fn validate_coordinates(latitude: f32, longitude: f32) -> Result<()> {
     Ok(())
 }
 
+/// Validate date parameters for `BirdNET` calendar.
+///
+/// # Arguments
+/// * `month` - Month number (1-12)
+/// * `day` - Day of month (1-31)
+///
+/// # Errors
+/// Returns `Error::RangeFilterInference` if values are out of range
+pub fn validate_date(month: u32, day: u32) -> Result<()> {
+    if !(1..=12).contains(&month) {
+        return Err(Error::RangeFilterInference(format!(
+            "month must be in range [1, 12], got {month}"
+        )));
+    }
+    if !(1..=31).contains(&day) {
+        return Err(Error::RangeFilterInference(format!(
+            "day must be in range [1, 31], got {day}"
+        )));
+    }
+    Ok(())
+}
+
 /// Builder for constructing a `RangeFilter`
 #[derive(Debug)]
 pub struct RangeFilterBuilder {
@@ -183,7 +205,8 @@ impl RangeFilter {
     ///
     /// # Errors
     /// Returns error if:
-    /// - Coordinates are invalid
+    /// - Coordinates are invalid (latitude not in [-90, 90] or longitude not in [-180, 180])
+    /// - Date parameters are invalid (month not in [1, 12] or day not in [1, 31])
     /// - Session lock is poisoned
     /// - ONNX inference fails
     #[allow(clippy::significant_drop_tightening)]
@@ -196,6 +219,9 @@ impl RangeFilter {
     ) -> Result<Vec<LocationScore>> {
         // Validate coordinates
         validate_coordinates(latitude, longitude)?;
+
+        // Validate date parameters
+        validate_date(month, day)?;
 
         // Calculate week number
         let week = calculate_week(month, day);
@@ -332,6 +358,61 @@ mod tests {
     fn test_validate_coordinates_invalid_longitude() {
         let result = validate_coordinates(0.0, 181.0);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_date_valid() {
+        assert!(validate_date(1, 1).is_ok());
+        assert!(validate_date(6, 15).is_ok());
+        assert!(validate_date(12, 31).is_ok());
+    }
+
+    #[test]
+    fn test_validate_date_invalid_month_zero() {
+        let result = validate_date(0, 1);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("month must be in range")
+        );
+    }
+
+    #[test]
+    fn test_validate_date_invalid_month_thirteen() {
+        let result = validate_date(13, 1);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("month must be in range")
+        );
+    }
+
+    #[test]
+    fn test_validate_date_invalid_day_zero() {
+        let result = validate_date(1, 0);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("day must be in range")
+        );
+    }
+
+    #[test]
+    fn test_validate_date_invalid_day_thirty_two() {
+        let result = validate_date(1, 32);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("day must be in range")
+        );
     }
 
     #[test]

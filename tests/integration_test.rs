@@ -535,6 +535,22 @@ fn test_range_filter_invalid_coordinates() {
     // Test invalid longitude
     let result = range_filter.predict(0.0, 190.0, 1, 1);
     assert!(result.is_err());
+
+    // Test invalid month (zero)
+    let result = range_filter.predict(0.0, 0.0, 0, 1);
+    assert!(result.is_err());
+
+    // Test invalid month (> 12)
+    let result = range_filter.predict(0.0, 0.0, 13, 1);
+    assert!(result.is_err());
+
+    // Test invalid day (zero)
+    let result = range_filter.predict(0.0, 0.0, 1, 0);
+    assert!(result.is_err());
+
+    // Test invalid day (> 31)
+    let result = range_filter.predict(0.0, 0.0, 1, 32);
+    assert!(result.is_err());
 }
 
 #[test]
