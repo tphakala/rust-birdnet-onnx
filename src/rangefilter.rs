@@ -20,6 +20,32 @@ pub fn calculate_week(month: u32, day: u32) -> f32 {
     (weeks_from_months + week_in_month) as f32
 }
 
+/// Validate geographic coordinates.
+///
+/// # Arguments
+/// * `latitude` - Latitude in degrees (-90 to 90)
+/// * `longitude` - Longitude in degrees (-180 to 180)
+///
+/// # Errors
+/// Returns `Error::InvalidCoordinates` if values are out of range
+pub fn validate_coordinates(latitude: f32, longitude: f32) -> Result<()> {
+    if !(-90.0..=90.0).contains(&latitude) {
+        return Err(Error::InvalidCoordinates {
+            latitude,
+            longitude,
+            reason: format!("latitude must be in range [-90, 90], got {latitude}"),
+        });
+    }
+    if !(-180.0..=180.0).contains(&longitude) {
+        return Err(Error::InvalidCoordinates {
+            latitude,
+            longitude,
+            reason: format!("longitude must be in range [-180, 180], got {longitude}"),
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
@@ -64,5 +90,29 @@ mod tests {
         // Note: BirdNET uses 48-week year, so this wraps
         let week = calculate_week(12, 31);
         assert_eq!(week, 49.0);
+    }
+
+    #[test]
+    fn test_validate_coordinates_valid() {
+        assert!(validate_coordinates(45.0, -122.0).is_ok());
+        assert!(validate_coordinates(0.0, 0.0).is_ok());
+        assert!(validate_coordinates(-90.0, -180.0).is_ok());
+        assert!(validate_coordinates(90.0, 180.0).is_ok());
+    }
+
+    #[test]
+    fn test_validate_coordinates_invalid_latitude() {
+        let result = validate_coordinates(91.0, 0.0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            Error::InvalidCoordinates { .. }
+        ));
+    }
+
+    #[test]
+    fn test_validate_coordinates_invalid_longitude() {
+        let result = validate_coordinates(0.0, 181.0);
+        assert!(result.is_err());
     }
 }
