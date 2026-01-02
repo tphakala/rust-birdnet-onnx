@@ -90,9 +90,9 @@ fn run() -> Result<()> {
 
     // Validate sample rate
     if sample_rate != config.sample_rate {
-        return Err(birdnet_onnx::Error::ModelDetection {
+        return Err(birdnet_onnx::Error::AudioFormat {
             reason: format!(
-                "model expects {} Hz, WAV is {} Hz",
+                "model expects {} Hz audio, WAV is {} Hz",
                 config.sample_rate, sample_rate
             ),
         });
@@ -161,15 +161,16 @@ fn run() -> Result<()> {
 
 /// Read WAV file and return samples, sample rate, and duration.
 fn read_wav(path: &PathBuf) -> Result<(Vec<f32>, u32, f32)> {
-    let reader = hound::WavReader::open(path).map_err(|e| birdnet_onnx::Error::ModelDetection {
-        reason: format!("failed to open WAV file: {e}"),
+    let reader = hound::WavReader::open(path).map_err(|e| birdnet_onnx::Error::AudioRead {
+        path: path.display().to_string(),
+        reason: e.to_string(),
     })?;
 
     let spec = reader.spec();
 
     // Validate format
     if spec.channels != 1 {
-        return Err(birdnet_onnx::Error::ModelDetection {
+        return Err(birdnet_onnx::Error::AudioFormat {
             reason: format!(
                 "WAV must be mono (1 channel), got {} channels",
                 spec.channels
@@ -178,13 +179,13 @@ fn read_wav(path: &PathBuf) -> Result<(Vec<f32>, u32, f32)> {
     }
 
     if spec.bits_per_sample != 16 {
-        return Err(birdnet_onnx::Error::ModelDetection {
+        return Err(birdnet_onnx::Error::AudioFormat {
             reason: format!("WAV must be 16-bit, got {}-bit", spec.bits_per_sample),
         });
     }
 
     if spec.sample_format != hound::SampleFormat::Int {
-        return Err(birdnet_onnx::Error::ModelDetection {
+        return Err(birdnet_onnx::Error::AudioFormat {
             reason: "WAV must be integer format, not float".to_string(),
         });
     }
@@ -195,12 +196,13 @@ fn read_wav(path: &PathBuf) -> Result<(Vec<f32>, u32, f32)> {
         .map(|s| s.map(|v| f32::from(v) / I16_NORMALIZATION_FACTOR))
         .collect();
 
-    let samples = samples.map_err(|e| birdnet_onnx::Error::ModelDetection {
-        reason: format!("failed to read WAV samples: {e}"),
+    let samples = samples.map_err(|e| birdnet_onnx::Error::AudioRead {
+        path: path.display().to_string(),
+        reason: format!("failed to read samples: {e}"),
     })?;
 
     if samples.is_empty() {
-        return Err(birdnet_onnx::Error::ModelDetection {
+        return Err(birdnet_onnx::Error::AudioFormat {
             reason: "WAV file has no samples".to_string(),
         });
     }
