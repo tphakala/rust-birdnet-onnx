@@ -1,0 +1,75 @@
+name: Security Review
+
+on:
+  pull_request:
+  schedule:
+    # Run weekly on Monday at 9:00 UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Claude-powered security review for PRs
+  claude-security:
+    name: AI Security Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+
+      - name: Claude Security Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-sonnet-4-20250514 --allowedTools Read,Glob,Grep"
+          prompt: |
+            Perform a security review of this pull request. Focus on:
+
+            1. **Input validation**: Check for injection vulnerabilities (SQL, command, path traversal)
+            2. **Memory safety**: Look for potential buffer overflows, use-after-free (though Rust prevents most)
+            3. **Error handling**: Ensure errors don't leak sensitive information
+            4. **Dependencies**: Flag any suspicious or unnecessary dependencies
+            5. **Unsafe code**: This crate denies unsafe code - flag any attempts to use it
+            6. **File operations**: Check for path traversal or symlink attacks
+            7. **Cryptography**: Flag any weak or custom crypto implementations
+
+            Only report actual security concerns, not style issues.
+            Be concise and specific about the vulnerability and its impact.
+
+  # Cargo audit for known vulnerabilities
+  cargo-audit:
+    name: Cargo Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Audit dependencies
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Dependency review for PRs
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-3.0, AGPL-3.0
