@@ -280,7 +280,10 @@ impl Classifier {
             .map_err(|e| Error::Inference(format!("failed to create input tensor: {e}")))?;
 
         // Run inference with locked session
-        // Note: session lock must be held while outputs are borrowed
+        // IMPORTANT: Session lock must be held while outputs exist because ort::Value
+        // borrows from the session. Dropping the lock before processing outputs would
+        // cause a use-after-free. This is why clippy::significant_drop_tightening is
+        // suppressed on this method.
         let mut session = self
             .inner
             .session
@@ -343,7 +346,10 @@ impl Classifier {
             .map_err(|e| Error::Inference(format!("failed to create input tensor: {e}")))?;
 
         // Run inference with locked session
-        // Note: session lock must be held while outputs are borrowed
+        // IMPORTANT: Session lock must be held while outputs exist because ort::Value
+        // borrows from the session. Dropping the lock before processing outputs would
+        // cause a use-after-free. This is why clippy::significant_drop_tightening is
+        // suppressed on this method.
         let mut session = self
             .inner
             .session
