@@ -119,18 +119,14 @@ jobs:
           path: artifacts
 
       - name: Generate changelog with Claude
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@v1
         id: changelog
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          model: "claude-sonnet-4-20250514"
-          allowed_tools: |
-            Bash(git log:*)
-            Bash(git diff:*)
-            Bash(git tag:*)
-          custom_instructions: |
-            Generate a concise changelog for this release.
-            Compare commits between the current tag and the previous tag.
+          claude_args: "--model claude-sonnet-4-20250514 --allowedTools Bash"
+          prompt: |
+            Generate a concise changelog for this release by comparing git tags.
+            Use `git log` and `git diff` to see what changed since the previous tag.
 
             Format:
             ## What's Changed
@@ -140,8 +136,6 @@ jobs:
             - Keep it under 20 lines total
 
             Output ONLY the changelog markdown, no explanations.
-          direct_prompt: |
-            @claude Generate a changelog for this release by comparing git tags.
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
