@@ -521,7 +521,11 @@ fn test_range_filter_invalid_inputs() {
         return;
     }
 
-    let labels = vec!["Test_Species".to_string()];
+    // Load actual labels to match model output dimension
+    let labels_path = format!("{FIXTURES_DIR}/birdnet_v24_labels.txt");
+    let labels_content = std::fs::read_to_string(&labels_path).expect("failed to read labels");
+    let labels: Vec<String> = labels_content.lines().map(String::from).collect();
+
     let range_filter = RangeFilter::builder()
         .model_path(&model_path)
         .labels(labels)

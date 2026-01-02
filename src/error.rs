@@ -79,6 +79,17 @@ pub enum Error {
         reason: String,
     },
 
+    /// Invalid date provided.
+    #[error("invalid date: month: {month}, day: {day}, reason: {reason}")]
+    InvalidDate {
+        /// Month value.
+        month: u32,
+        /// Day value.
+        day: u32,
+        /// Reason for invalidity.
+        reason: String,
+    },
+
     /// Range filter inference failed.
     #[error("range filter inference failed: {0}")]
     RangeFilterInference(String),
@@ -189,6 +200,18 @@ mod tests {
         };
         assert!(err.to_string().contains("latitude: 95"));
         assert!(err.to_string().contains("longitude: 200"));
+    }
+
+    #[test]
+    fn test_invalid_date_error() {
+        let err = Error::InvalidDate {
+            month: 13,
+            day: 32,
+            reason: "month out of range".to_string(),
+        };
+        assert!(err.to_string().contains("month: 13"));
+        assert!(err.to_string().contains("day: 32"));
+        assert!(err.to_string().contains("month out of range"));
     }
 
     #[test]

@@ -59,17 +59,21 @@ pub fn validate_coordinates(latitude: f32, longitude: f32) -> Result<()> {
 /// * `day` - Day of month (1-31)
 ///
 /// # Errors
-/// Returns `Error::RangeFilterInference` if values are out of range
+/// Returns `Error::InvalidDate` if values are out of range
 pub fn validate_date(month: u32, day: u32) -> Result<()> {
     if !(1..=12).contains(&month) {
-        return Err(Error::RangeFilterInference(format!(
-            "month must be in range [1, 12], got {month}"
-        )));
+        return Err(Error::InvalidDate {
+            month,
+            day,
+            reason: format!("month must be in range [1, 12], got {month}"),
+        });
     }
     if !(1..=31).contains(&day) {
-        return Err(Error::RangeFilterInference(format!(
-            "day must be in range [1, 31], got {day}"
-        )));
+        return Err(Error::InvalidDate {
+            month,
+            day,
+            reason: format!("day must be in range [1, 31], got {day}"),
+        });
     }
     Ok(())
 }
@@ -293,14 +297,9 @@ impl RangeFilter {
             .run(ort::inputs![input_value])
             .map_err(|e| Error::RangeFilterInference(e.to_string()))?;
 
-        // Extract output tensor
-        let output_names: Vec<_> = outputs.keys().collect();
-        let name = output_names
-            .first()
-            .ok_or_else(|| Error::RangeFilterInference("missing output tensor".to_string()))?;
-
-        let tensor = outputs.get(*name).ok_or_else(|| {
-            Error::RangeFilterInference(format!("missing output tensor '{name}'"))
+        // Extract output tensor (build validates exactly one output exists)
+        let tensor = outputs.values().next().ok_or_else(|| {
+            Error::RangeFilterInference("model returned no output tensors".to_string())
         })?;
 
         let (_, data) = tensor
@@ -417,48 +416,28 @@ mod tests {
     fn test_validate_date_invalid_month_zero() {
         let result = validate_date(0, 1);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("month must be in range")
-        );
+        assert!(matches!(result.unwrap_err(), Error::InvalidDate { .. }));
     }
 
     #[test]
     fn test_validate_date_invalid_month_thirteen() {
         let result = validate_date(13, 1);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("month must be in range")
-        );
+        assert!(matches!(result.unwrap_err(), Error::InvalidDate { .. }));
     }
 
     #[test]
     fn test_validate_date_invalid_day_zero() {
         let result = validate_date(1, 0);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("day must be in range")
-        );
+        assert!(matches!(result.unwrap_err(), Error::InvalidDate { .. }));
     }
 
     #[test]
     fn test_validate_date_invalid_day_thirty_two() {
         let result = validate_date(1, 32);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("day must be in range")
-        );
+        assert!(matches!(result.unwrap_err(), Error::InvalidDate { .. }));
     }
 
     #[test]
