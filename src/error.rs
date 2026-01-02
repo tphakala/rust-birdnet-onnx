@@ -68,6 +68,25 @@ pub enum Error {
     #[error("inference failed: {0}")]
     Inference(String),
 
+    /// Range filter was not loaded but filtering was requested.
+    #[error("range filter not loaded")]
+    RangeFilterNotLoaded,
+
+    /// Invalid geographic coordinates provided.
+    #[error("invalid coordinates: latitude: {latitude}, longitude: {longitude}, reason: {reason}")]
+    InvalidCoordinates {
+        /// Latitude value.
+        latitude: f32,
+        /// Longitude value.
+        longitude: f32,
+        /// Reason for invalidity.
+        reason: String,
+    },
+
+    /// Range filter inference failed.
+    #[error("range filter inference failed: {0}")]
+    RangeFilterInference(String),
+
     /// Failed to initialize ONNX Runtime.
     #[error("failed to initialize ONNX Runtime: {0}")]
     RuntimeInit(String),
@@ -162,6 +181,32 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "failed to read audio file /path/to/file.wav: file not found"
+        );
+    }
+
+    #[test]
+    fn test_range_filter_not_loaded_error() {
+        let err = Error::RangeFilterNotLoaded;
+        assert_eq!(err.to_string(), "range filter not loaded");
+    }
+
+    #[test]
+    fn test_invalid_coordinates_error() {
+        let err = Error::InvalidCoordinates {
+            latitude: 95.0,
+            longitude: 200.0,
+            reason: "latitude out of range".to_string(),
+        };
+        assert!(err.to_string().contains("latitude: 95"));
+        assert!(err.to_string().contains("longitude: 200"));
+    }
+
+    #[test]
+    fn test_range_filter_inference_error() {
+        let err = Error::RangeFilterInference("model invoke failed".to_string());
+        assert_eq!(
+            err.to_string(),
+            "range filter inference failed: model invoke failed"
         );
     }
 }
