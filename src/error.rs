@@ -71,6 +71,22 @@ pub enum Error {
     /// Failed to initialize ONNX Runtime.
     #[error("failed to initialize ONNX Runtime: {0}")]
     RuntimeInit(String),
+
+    /// Audio file format is not supported.
+    #[error("unsupported audio format: {reason}")]
+    AudioFormat {
+        /// Reason for format rejection.
+        reason: String,
+    },
+
+    /// Failed to read audio file.
+    #[error("failed to read audio file {path}: {reason}")]
+    AudioRead {
+        /// Path to the audio file.
+        path: String,
+        /// Reason for failure.
+        reason: String,
+    },
 }
 
 /// Result type alias using [`Error`].
@@ -123,6 +139,29 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "label count mismatch: model expects 6522, got 1000"
+        );
+    }
+
+    #[test]
+    fn test_audio_format_error_display() {
+        let err = Error::AudioFormat {
+            reason: "WAV must be mono".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "unsupported audio format: WAV must be mono"
+        );
+    }
+
+    #[test]
+    fn test_audio_read_error_display() {
+        let err = Error::AudioRead {
+            path: "/path/to/file.wav".to_string(),
+            reason: "file not found".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "failed to read audio file /path/to/file.wav: file not found"
         );
     }
 }

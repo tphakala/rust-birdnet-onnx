@@ -45,6 +45,28 @@ struct Args {
     model_type: Option<String>,
 }
 
+/// Parse model type from CLI argument.
+fn parse_model_type(arg: Option<&str>) -> Result<Option<ModelType>> {
+    match arg {
+        Some("v24") => Ok(Some(ModelType::BirdNetV24)),
+        Some("v30") => Ok(Some(ModelType::BirdNetV30)),
+        Some("perch") => Ok(Some(ModelType::PerchV2)),
+        Some(other) => Err(birdnet_onnx::Error::ModelDetection {
+            reason: format!("unknown model type '{other}', expected: v24, v30, perch"),
+        }),
+        None => Ok(None),
+    }
+}
+
+/// Get display name for model type.
+const fn model_display_name(model_type: ModelType) -> &'static str {
+    match model_type {
+        ModelType::BirdNetV24 => "BirdNET v2.4",
+        ModelType::BirdNetV30 => "BirdNET v3.0",
+        ModelType::PerchV2 => "Perch v2",
+    }
+}
+
 fn main() {
     if let Err(e) = run() {
         eprintln!("error: {e}");
@@ -59,17 +81,7 @@ fn run() -> Result<()> {
     init_runtime()?;
 
     // Parse model type override if provided
-    let model_type_override = match args.model_type.as_deref() {
-        Some("v24") => Some(ModelType::BirdNetV24),
-        Some("v30") => Some(ModelType::BirdNetV30),
-        Some("perch") => Some(ModelType::PerchV2),
-        Some(other) => {
-            return Err(birdnet_onnx::Error::ModelDetection {
-                reason: format!("unknown model type '{other}', expected: v24, v30, perch"),
-            });
-        }
-        None => None,
-    };
+    let model_type_override = parse_model_type(args.model_type.as_deref())?;
 
     // Build classifier
     let mut builder = Classifier::builder()
@@ -90,9 +102,9 @@ fn run() -> Result<()> {
 
     // Validate sample rate
     if sample_rate != config.sample_rate {
-        return Err(birdnet_onnx::Error::ModelDetection {
+        return Err(birdnet_onnx::Error::AudioFormat {
             reason: format!(
-                "model expects {} Hz, WAV is {} Hz",
+                "model expects {} Hz audio, WAV is {} Hz",
                 config.sample_rate, sample_rate
             ),
         });
@@ -109,11 +121,7 @@ fn run() -> Result<()> {
     }
 
     // Print header
-    let model_name = match config.model_type {
-        ModelType::BirdNetV24 => "BirdNET v2.4",
-        ModelType::BirdNetV30 => "BirdNET v3.0",
-        ModelType::PerchV2 => "Perch v2",
-    };
+    let model_name = model_display_name(config.model_type);
     println!(
         "Analyzing: {} ({}, {} Hz)",
         args.audio_file.display(),
@@ -161,15 +169,16 @@ fn run() -> Result<()> {
 
 /// Read WAV file and return samples, sample rate, and duration.
 fn read_wav(path: &PathBuf) -> Result<(Vec<f32>, u32, f32)> {
-    let reader = hound::WavReader::open(path).map_err(|e| birdnet_onnx::Error::ModelDetection {
-        reason: format!("failed to open WAV file: {e}"),
+    let reader = hound::WavReader::open(path).map_err(|e| birdnet_onnx::Error::AudioRead {
+        path: path.display().to_string(),
+        reason: e.to_string(),
     })?;
 
     let spec = reader.spec();
 
     // Validate format
     if spec.channels != 1 {
-        return Err(birdnet_onnx::Error::ModelDetection {
+        return Err(birdnet_onnx::Error::AudioFormat {
             reason: format!(
                 "WAV must be mono (1 channel), got {} channels",
                 spec.channels
@@ -178,13 +187,13 @@ fn read_wav(path: &PathBuf) -> Result<(Vec<f32>, u32, f32)> {
     }
 
     if spec.bits_per_sample != 16 {
-        return Err(birdnet_onnx::Error::ModelDetection {
+        return Err(birdnet_onnx::Error::AudioFormat {
             reason: format!("WAV must be 16-bit, got {}-bit", spec.bits_per_sample),
         });
     }
 
     if spec.sample_format != hound::SampleFormat::Int {
-        return Err(birdnet_onnx::Error::ModelDetection {
+        return Err(birdnet_onnx::Error::AudioFormat {
             reason: "WAV must be integer format, not float".to_string(),
         });
     }
@@ -195,12 +204,13 @@ fn read_wav(path: &PathBuf) -> Result<(Vec<f32>, u32, f32)> {
         .map(|s| s.map(|v| f32::from(v) / I16_NORMALIZATION_FACTOR))
         .collect();
 
-    let samples = samples.map_err(|e| birdnet_onnx::Error::ModelDetection {
-        reason: format!("failed to read WAV samples: {e}"),
+    let samples = samples.map_err(|e| birdnet_onnx::Error::AudioRead {
+        path: path.display().to_string(),
+        reason: format!("failed to read samples: {e}"),
     })?;
 
     if samples.is_empty() {
-        return Err(birdnet_onnx::Error::ModelDetection {
+        return Err(birdnet_onnx::Error::AudioFormat {
             reason: "WAV file has no samples".to_string(),
         });
     }

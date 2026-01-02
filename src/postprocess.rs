@@ -12,7 +12,9 @@ struct ScoreEntry {
 
 impl PartialEq for ScoreEntry {
     fn eq(&self, other: &Self) -> bool {
-        self.score == other.score
+        // Use total ordering for consistent behavior with NaN values.
+        // This ensures PartialEq and Ord are consistent for heap operations.
+        self.score.total_cmp(&other.score) == Ordering::Equal
     }
 }
 
@@ -27,10 +29,8 @@ impl PartialOrd for ScoreEntry {
 impl Ord for ScoreEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         // Reverse order for min-heap (smallest at top, gets popped first)
-        other
-            .score
-            .partial_cmp(&self.score)
-            .unwrap_or(Ordering::Equal)
+        // Use total_cmp for consistent NaN handling with PartialEq
+        other.score.total_cmp(&self.score)
     }
 }
 
