@@ -45,6 +45,7 @@ mod types;
 
 pub use classifier::{Classifier, ClassifierBuilder};
 pub use error::{Error, Result};
+pub use rangefilter::{RangeFilter, RangeFilterBuilder, calculate_week, validate_coordinates};
 pub use runtime::init_runtime;
 pub use types::{LabelFormat, LocationScore, ModelConfig, ModelType, Prediction, PredictionResult};
 

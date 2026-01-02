@@ -168,6 +168,98 @@ impl RangeFilter {
     pub const fn builder() -> RangeFilterBuilder {
         RangeFilterBuilder::new()
     }
+
+    /// Get species probability scores for given location and date
+    ///
+    /// # Arguments
+    /// * `latitude` - Latitude in degrees (-90 to 90)
+    /// * `longitude` - Longitude in degrees (-180 to 180)
+    /// * `month` - Month number (1-12)
+    /// * `day` - Day of month (1-31)
+    ///
+    /// # Returns
+    /// Vector of `LocationScore` sorted by score (descending)
+    ///
+    /// # Errors
+    /// Returns error if:
+    /// - Coordinates are invalid
+    /// - Session lock is poisoned
+    /// - ONNX inference fails
+    #[allow(clippy::significant_drop_tightening)]
+    pub fn predict(
+        &self,
+        latitude: f32,
+        longitude: f32,
+        month: u32,
+        day: u32,
+    ) -> Result<Vec<LocationScore>> {
+        // Validate coordinates
+        validate_coordinates(latitude, longitude)?;
+
+        // Calculate week number
+        let week = calculate_week(month, day);
+
+        // Create input tensor [1, 3] with [latitude, longitude, week]
+        let input_data = vec![latitude, longitude, week];
+        let input_array = Array2::from_shape_vec((1, 3), input_data).map_err(|e| {
+            Error::RangeFilterInference(format!("failed to create input array: {e}"))
+        })?;
+
+        let input_value = Value::from_array(input_array).map_err(|e| {
+            Error::RangeFilterInference(format!("failed to create input tensor: {e}"))
+        })?;
+
+        // Run inference with locked session
+        let mut session = self
+            .inner
+            .session
+            .lock()
+            .map_err(|e| Error::RangeFilterInference(format!("session lock poisoned: {e}")))?;
+
+        let outputs = session
+            .run(ort::inputs![input_value])
+            .map_err(|e| Error::RangeFilterInference(e.to_string()))?;
+
+        // Extract output tensor
+        let output_names: Vec<_> = outputs.keys().collect();
+        let name = output_names
+            .first()
+            .ok_or_else(|| Error::RangeFilterInference("missing output tensor".to_string()))?;
+
+        let tensor = outputs.get(*name).ok_or_else(|| {
+            Error::RangeFilterInference(format!("missing output tensor '{name}'"))
+        })?;
+
+        let (_, data) = tensor
+            .try_extract_tensor::<f32>()
+            .map_err(|e| Error::RangeFilterInference(e.to_string()))?;
+
+        // Build scores above threshold
+        let mut scores: Vec<LocationScore> = data
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &score)| {
+                if score >= self.inner.threshold && i < self.inner.labels.len() {
+                    Some(LocationScore {
+                        species: self.inner.labels[i].clone(),
+                        score,
+                        index: i,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Sort by score descending
+        scores.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        Ok(scores)
+    }
 }
 
 #[cfg(test)]
