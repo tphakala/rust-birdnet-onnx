@@ -7,9 +7,9 @@ use ort::session::Session;
 use ort::value::Value;
 use std::sync::{Arc, Mutex};
 
-/// Calculate week number for BirdNET meta model (48-week year, 4 weeks per month).
+/// Calculate week number for `BirdNET` meta model (48-week year, 4 weeks per month).
 ///
-/// BirdNET assumes each month has exactly 4 weeks, creating a 48-week year.
+/// `BirdNET` assumes each month has exactly 4 weeks, creating a 48-week year.
 /// Week calculation: weeksFromMonths = (month - 1) * 4; weekInMonth = (day - 1) / 7 + 1
 ///
 /// # Arguments
@@ -19,7 +19,8 @@ use std::sync::{Arc, Mutex};
 /// # Returns
 /// Week number as f32 (typically 1-48, but can exceed 48 for days 29-31)
 #[must_use]
-pub fn calculate_week(month: u32, day: u32) -> f32 {
+#[allow(clippy::cast_precision_loss)]
+pub const fn calculate_week(month: u32, day: u32) -> f32 {
     let weeks_from_months = (month - 1) * 4;
     let week_in_month = (day - 1) / 7 + 1;
     (weeks_from_months + week_in_month) as f32
@@ -51,7 +52,7 @@ pub fn validate_coordinates(latitude: f32, longitude: f32) -> Result<()> {
     Ok(())
 }
 
-/// Builder for constructing a RangeFilter
+/// Builder for constructing a `RangeFilter`
 #[derive(Debug)]
 pub struct RangeFilterBuilder {
     model_path: Option<String>,
@@ -140,7 +141,7 @@ impl RangeFilterBuilder {
     }
 }
 
-/// Internal state for RangeFilter
+/// Internal state for `RangeFilter`
 struct RangeFilterInner {
     session: Mutex<Session>,
     labels: Vec<String>,
@@ -265,6 +266,7 @@ impl RangeFilter {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::float_cmp)]
     use super::*;
 
     #[test]

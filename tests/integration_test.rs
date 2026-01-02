@@ -446,25 +446,23 @@ fn test_label_count_mismatch() -> Result<()> {
 }
 
 #[test]
+#[allow(clippy::expect_used, clippy::print_stdout)]
 fn test_range_filter_with_real_model() {
     init_runtime().expect("failed to init runtime");
 
     // Get model path from environment variable (for local testing only)
     // CI will skip this test since BIRDNET_META_MODEL won't be set
-    let model_path = match std::env::var("BIRDNET_META_MODEL") {
-        Ok(path) => path,
-        Err(_) => {
-            eprintln!("Skipping test: BIRDNET_META_MODEL environment variable not set");
-            eprintln!(
-                "To run this test locally: export BIRDNET_META_MODEL=/path/to/birdnet_data_model.onnx"
-            );
-            return;
-        }
+    let Ok(model_path) = std::env::var("BIRDNET_META_MODEL") else {
+        eprintln!("Skipping test: BIRDNET_META_MODEL environment variable not set");
+        eprintln!(
+            "To run this test locally: export BIRDNET_META_MODEL=/path/to/birdnet_data_model.onnx"
+        );
+        return;
     };
 
     // Skip if model doesn't exist
     if !std::path::Path::new(&model_path).exists() {
-        eprintln!("Skipping test: meta model not found at {}", model_path);
+        eprintln!("Skipping test: meta model not found at {model_path}");
         return;
     }
 
@@ -510,13 +508,13 @@ fn test_range_filter_with_real_model() {
 }
 
 #[test]
+#[allow(clippy::expect_used)]
 fn test_range_filter_invalid_coordinates() {
     init_runtime().expect("failed to init runtime");
 
     // Get model path from environment variable
-    let model_path = match std::env::var("BIRDNET_META_MODEL") {
-        Ok(path) => path,
-        Err(_) => return, // Skip if not set
+    let Ok(model_path) = std::env::var("BIRDNET_META_MODEL") else {
+        return;
     };
 
     if !std::path::Path::new(&model_path).exists() {
@@ -540,6 +538,7 @@ fn test_range_filter_invalid_coordinates() {
 }
 
 #[test]
+#[allow(clippy::float_cmp)]
 fn test_calculate_week_values() {
     // January 1st = week 1
     assert_eq!(calculate_week(1, 1), 1.0);
