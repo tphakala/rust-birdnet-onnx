@@ -132,7 +132,7 @@ Model: BirdNET v2.4 (3.0s segments, 1.5s overlap)
 Filter species predictions by location and date using BirdNET's meta model:
 
 ```rust
-use birdnet_onnx::{RangeFilter, Classifier};
+use birdnet_onnx::RangeFilter;
 
 // Load the meta model
 let range_filter = RangeFilter::builder()

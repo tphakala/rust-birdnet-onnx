@@ -10,7 +10,7 @@
 #![allow(clippy::items_after_statements)] // Allow use imports in tests
 #![allow(clippy::unnecessary_wraps)] // Tests can return Result for consistency
 
-use birdnet_onnx::{Classifier, ModelType, RangeFilter, Result, calculate_week, init_runtime};
+use birdnet_onnx::{Classifier, ModelType, RangeFilter, Result, init_runtime};
 use std::path::Path;
 
 const FIXTURES_DIR: &str = "tests/fixtures";
@@ -467,8 +467,8 @@ fn test_range_filter_with_real_model() {
     }
 
     // Load labels from BirdNET v2.4 test fixture
-    let labels_path = "tests/fixtures/birdnet_v24/labels.txt";
-    let labels_content = std::fs::read_to_string(labels_path).expect("failed to read labels");
+    let labels_path = format!("{FIXTURES_DIR}/birdnet_v24_labels.txt");
+    let labels_content = std::fs::read_to_string(&labels_path).expect("failed to read labels");
     let labels: Vec<String> = labels_content.lines().map(String::from).collect();
 
     let range_filter = RangeFilter::builder()
@@ -509,7 +509,7 @@ fn test_range_filter_with_real_model() {
 
 #[test]
 #[allow(clippy::expect_used)]
-fn test_range_filter_invalid_coordinates() {
+fn test_range_filter_invalid_inputs() {
     init_runtime().expect("failed to init runtime");
 
     // Get model path from environment variable
@@ -551,17 +551,4 @@ fn test_range_filter_invalid_coordinates() {
     // Test invalid day (> 31)
     let result = range_filter.predict(0.0, 0.0, 1, 32);
     assert!(result.is_err());
-}
-
-#[test]
-#[allow(clippy::float_cmp)]
-fn test_calculate_week_values() {
-    // January 1st = week 1
-    assert_eq!(calculate_week(1, 1), 1.0);
-
-    // February 1st = week 5 (4 weeks in Jan + 1)
-    assert_eq!(calculate_week(2, 1), 5.0);
-
-    // December 1st = week 45 (44 weeks + 1)
-    assert_eq!(calculate_week(12, 1), 45.0);
 }

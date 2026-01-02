@@ -143,15 +143,33 @@ impl RangeFilterBuilder {
         // Build session with execution providers
         let mut session_builder = Session::builder().map_err(Error::ModelLoad)?;
 
-        for provider in self.execution_providers {
+        if !self.execution_providers.is_empty() {
             session_builder = session_builder
-                .with_execution_providers([provider])
+                .with_execution_providers(self.execution_providers)
                 .map_err(Error::ModelLoad)?;
         }
 
         let session = session_builder
             .commit_from_file(&model_path)
             .map_err(Error::ModelLoad)?;
+
+        // Validate label count matches model output
+        let output_shapes = extract_output_shapes(&session)?;
+
+        // Meta model should have exactly one output
+        if output_shapes.len() != 1 {
+            return Err(Error::ModelDetection {
+                reason: format!("meta model expects 1 output, got {}", output_shapes.len()),
+            });
+        }
+
+        let expected = extract_last_dim(&output_shapes[0])?;
+        if labels.len() != expected {
+            return Err(Error::LabelCount {
+                expected,
+                got: labels.len(),
+            });
+        }
 
         Ok(RangeFilter {
             inner: Arc::new(RangeFilterInner {
@@ -161,6 +179,34 @@ impl RangeFilterBuilder {
             }),
         })
     }
+}
+
+/// Extract output tensor shapes from session
+fn extract_output_shapes(session: &Session) -> Result<Vec<Vec<i64>>> {
+    session
+        .outputs
+        .iter()
+        .map(|output| {
+            let shape = output
+                .output_type
+                .tensor_shape()
+                .ok_or_else(|| Error::ModelDetection {
+                    reason: "output is not a tensor".to_string(),
+                })?;
+            Ok(shape.iter().copied().collect())
+        })
+        .collect()
+}
+
+/// Extract last dimension from output shape
+fn extract_last_dim(shape: &[i64]) -> Result<usize> {
+    let value = shape.last().copied().ok_or_else(|| Error::ModelDetection {
+        reason: "empty output shape".to_string(),
+    })?;
+
+    usize::try_from(value).map_err(|_| Error::ModelDetection {
+        reason: format!("invalid dimension: {value}"),
+    })
 }
 
 /// Internal state for `RangeFilter`

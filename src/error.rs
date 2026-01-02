@@ -68,10 +68,6 @@ pub enum Error {
     #[error("inference failed: {0}")]
     Inference(String),
 
-    /// Range filter was not loaded but filtering was requested.
-    #[error("range filter not loaded")]
-    RangeFilterNotLoaded,
-
     /// Invalid geographic coordinates provided.
     #[error("invalid coordinates: latitude: {latitude}, longitude: {longitude}, reason: {reason}")]
     InvalidCoordinates {
@@ -182,12 +178,6 @@ mod tests {
             err.to_string(),
             "failed to read audio file /path/to/file.wav: file not found"
         );
-    }
-
-    #[test]
-    fn test_range_filter_not_loaded_error() {
-        let err = Error::RangeFilterNotLoaded;
-        assert_eq!(err.to_string(), "range filter not loaded");
     }
 
     #[test]
