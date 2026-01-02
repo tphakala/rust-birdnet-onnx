@@ -35,7 +35,7 @@ jobs:
         run: echo '<meta http-equiv="refresh" content="0; url=birdnet_onnx/">' > target/doc/index.html
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: target/doc
 
