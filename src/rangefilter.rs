@@ -1,7 +1,8 @@
 //! Range filter for location and date-based species filtering
 
 use crate::error::{Error, Result};
-use crate::types::LocationScore;
+use crate::labels::parse_labels;
+use crate::types::{LabelFormat, LocationScore};
 use ndarray::Array2;
 use ort::session::Session;
 use ort::value::Value;
@@ -78,11 +79,18 @@ pub fn validate_date(month: u32, day: u32) -> Result<()> {
     Ok(())
 }
 
+/// Labels source for builder
+#[derive(Debug)]
+enum Labels {
+    Path(String),
+    InMemory(Vec<String>),
+}
+
 /// Builder for constructing a `RangeFilter`
 #[derive(Debug)]
 pub struct RangeFilterBuilder {
     model_path: Option<String>,
-    labels: Option<Vec<String>>,
+    labels: Option<Labels>,
     execution_providers: Vec<ort::execution_providers::ExecutionProviderDispatch>,
     threshold: f32,
 }
@@ -112,10 +120,17 @@ impl RangeFilterBuilder {
         self
     }
 
-    /// Set species labels (required, must match model output size)
+    /// Set the path to the labels file (required, must match model output size)
+    #[must_use]
+    pub fn labels_path(mut self, path: impl Into<String>) -> Self {
+        self.labels = Some(Labels::Path(path.into()));
+        self
+    }
+
+    /// Set species labels directly (required, must match model output size)
     #[must_use]
     pub fn labels(mut self, labels: Vec<String>) -> Self {
-        self.labels = Some(labels);
+        self.labels = Some(Labels::InMemory(labels));
         self
     }
 
@@ -142,7 +157,20 @@ impl RangeFilterBuilder {
     /// Returns error if model path or labels not set, or if model loading fails
     pub fn build(self) -> Result<RangeFilter> {
         let model_path = self.model_path.ok_or(Error::ModelPathRequired)?;
-        let labels = self.labels.ok_or(Error::LabelsRequired)?;
+        let labels_source = self.labels.ok_or(Error::LabelsRequired)?;
+
+        // Load labels from file or use in-memory vector
+        let labels = match labels_source {
+            Labels::Path(path) => {
+                // Read and parse labels file (text format: one label per line)
+                let content = std::fs::read_to_string(&path).map_err(|e| Error::LabelLoad {
+                    path: path.clone(),
+                    reason: e.to_string(),
+                })?;
+                parse_labels(&content, LabelFormat::Text)?
+            }
+            Labels::InMemory(labels) => labels,
+        };
 
         // Build session with execution providers
         let mut session_builder = Session::builder().map_err(Error::ModelLoad)?;
@@ -324,7 +352,7 @@ impl RangeFilter {
             .collect();
 
         // Sort by score descending
-        scores.sort_by(|a, b| {
+        scores.sort_unstable_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
