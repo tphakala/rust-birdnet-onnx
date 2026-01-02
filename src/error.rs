@@ -147,7 +147,10 @@ mod tests {
         let err = Error::AudioFormat {
             reason: "WAV must be mono".to_string(),
         };
-        assert_eq!(err.to_string(), "unsupported audio format: WAV must be mono");
+        assert_eq!(
+            err.to_string(),
+            "unsupported audio format: WAV must be mono"
+        );
     }
 
     #[test]
