@@ -195,3 +195,11 @@ tasks:
         echo "  └── perch_v2_labels.json"
         echo ""
         echo "Then run: task test:integration"
+
+  setup:hooks:
+    desc: Install git hooks for pre-commit and pre-push CI validation
+    cmds:
+      - git config core.hooksPath .githooks
+      - echo "Git hooks installed from .githooks/"
+      - echo "  - pre-commit: format + clippy checks"
+      - echo "  - pre-push: full CI validation (format, clippy, deny, tests)"

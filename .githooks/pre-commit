@@ -1,0 +1,137 @@
+#!/bin/bash
+#
+# Pre-commit hook: Runs fast checks before every commit
+# - Format check (cargo fmt)
+# - Clippy lint check
+#
+# Output is structured for LLM consumption with clear issue identification
+
+set -e
+
+# Colors for terminal output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Track failures
+FAILED=0
+ISSUES=""
+
+echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
+echo -e "${BLUE}                    PRE-COMMIT CHECKS${NC}"
+echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
+echo ""
+
+# ============================================================================
+# Format Check
+# ============================================================================
+echo -e "${YELLOW}[1/2] Checking code formatting...${NC}"
+
+FMT_OUTPUT=$(cargo fmt -- --check 2>&1) || FMT_EXIT=$?
+FMT_EXIT=${FMT_EXIT:-0}
+
+if [ $FMT_EXIT -ne 0 ]; then
+    FAILED=1
+    echo -e "${RED}✗ Format check failed${NC}"
+    echo ""
+    echo -e "${RED}--- FORMAT ISSUES (LLM-ACTIONABLE) ---${NC}"
+    echo "ISSUE_TYPE: formatting"
+    echo "FIX_COMMAND: cargo fmt"
+    echo "DESCRIPTION: The following files have formatting issues:"
+    echo ""
+    echo "$FMT_OUTPUT" | grep -E "^Diff in" | while read -r line; do
+        FILE=$(echo "$line" | sed 's/Diff in //' | sed 's/ at.*//')
+        echo "  FILE: $FILE"
+    done
+    echo ""
+    echo "AUTO_FIX_AVAILABLE: yes"
+    echo "AUTO_FIX: Run 'cargo fmt' to automatically fix all formatting issues"
+    echo -e "${RED}--- END FORMAT ISSUES ---${NC}"
+    echo ""
+
+    ISSUES="${ISSUES}\n- FORMATTING: Run 'cargo fmt' to fix"
+else
+    echo -e "${GREEN}✓ Format check passed${NC}"
+fi
+echo ""
+
+# ============================================================================
+# Clippy Lint Check
+# ============================================================================
+echo -e "${YELLOW}[2/2] Running clippy lints...${NC}"
+
+# Use same flags as CI: --all-targets --all-features -- -D warnings
+CLIPPY_OUTPUT=$(cargo clippy --all-targets --all-features --message-format=short 2>&1) || CLIPPY_EXIT=$?
+CLIPPY_EXIT=${CLIPPY_EXIT:-0}
+
+if [ $CLIPPY_EXIT -ne 0 ]; then
+    FAILED=1
+    echo -e "${RED}✗ Clippy check failed${NC}"
+    echo ""
+    echo -e "${RED}--- CLIPPY ISSUES (LLM-ACTIONABLE) ---${NC}"
+    echo "ISSUE_TYPE: clippy_lint"
+    echo "DESCRIPTION: Clippy found the following issues:"
+    echo ""
+
+    # Parse clippy output for structured format
+    echo "$CLIPPY_OUTPUT" | grep -E "^(warning|error)" | while read -r line; do
+        # Extract components: level, file:line:col, message
+        if [[ "$line" =~ ^(warning|error)\[([^\]]+)\]:\ (.+) ]]; then
+            LEVEL="${BASH_REMATCH[1]}"
+            LINT="${BASH_REMATCH[2]}"
+            MSG="${BASH_REMATCH[3]}"
+            echo "  LEVEL: $LEVEL"
+            echo "  LINT: $LINT"
+            echo "  MESSAGE: $MSG"
+            echo ""
+        elif [[ "$line" =~ ^(warning|error):\ (.+) ]]; then
+            echo "  LEVEL: ${BASH_REMATCH[1]}"
+            echo "  MESSAGE: ${BASH_REMATCH[2]}"
+            echo ""
+        fi
+    done
+
+    # Also show file locations
+    echo "AFFECTED_FILES:"
+    echo "$CLIPPY_OUTPUT" | grep -E "^\s*-->" | sed 's/.*--> /  /' | sort -u
+    echo ""
+    echo "AUTO_FIX_AVAILABLE: partial"
+    echo "AUTO_FIX: Run 'cargo clippy --fix --allow-dirty' for auto-fixable issues"
+    echo "MANUAL_FIX: Some issues require manual code changes"
+    echo -e "${RED}--- END CLIPPY ISSUES ---${NC}"
+    echo ""
+
+    ISSUES="${ISSUES}\n- CLIPPY: Fix lint warnings (see above)"
+else
+    echo -e "${GREEN}✓ Clippy check passed${NC}"
+fi
+echo ""
+
+# ============================================================================
+# Summary
+# ============================================================================
+echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
+if [ $FAILED -ne 0 ]; then
+    echo -e "${RED}PRE-COMMIT FAILED${NC}"
+    echo ""
+    echo -e "${RED}--- SUMMARY (LLM-ACTIONABLE) ---${NC}"
+    echo "STATUS: FAILED"
+    echo "BLOCKING: commit"
+    echo -e "REQUIRED_FIXES:${ISSUES}"
+    echo ""
+    echo "SUGGESTED_WORKFLOW:"
+    echo "  1. Run 'cargo fmt' to fix formatting"
+    echo "  2. Run 'cargo clippy --fix --allow-dirty' for auto-fixes"
+    echo "  3. Manually fix remaining clippy warnings"
+    echo "  4. Run 'git add -u' to stage fixes"
+    echo "  5. Retry commit"
+    echo -e "${RED}--- END SUMMARY ---${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
+    exit 1
+else
+    echo -e "${GREEN}ALL PRE-COMMIT CHECKS PASSED ✓${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
+    exit 0
+fi
