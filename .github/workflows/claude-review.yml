@@ -8,6 +8,7 @@ permissions:
   contents: read
   pull-requests: write
   issues: read
+  id-token: write
 
 jobs:
   review:
@@ -16,16 +17,26 @@ jobs:
     # Skip for dependabot PRs (they're automated updates)
     if: github.actor != 'dependabot[bot]'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Claude Code Review
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@beta
         with:
-          prompt: |
-            Review this PR for a Rust library (birdnet-onnx). Focus on:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          model: "claude-sonnet-4-20250514"
+          allowed_tools: |
+            Read(src/**/*.rs)
+            Read(Cargo.toml)
+            Read(README.md)
+            Read(CLAUDE.md)
+            Glob(src/**/*.rs)
+            Grep(*.rs)
+          custom_instructions: |
+            You are a code reviewer for a Rust library (birdnet-onnx) that runs ONNX inference.
 
+            Focus on:
             1. **Correctness**: Logic errors, edge cases, error handling
             2. **Safety**: No unsafe code allowed (denied in Cargo.toml)
             3. **Performance**: ONNX inference is performance-critical
@@ -39,4 +50,5 @@ jobs:
 
             Be concise. Only comment on issues worth fixing.
             Praise is not needed - focus on problems.
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          direct_prompt: |
+            @claude Review this pull request for code quality and correctness.

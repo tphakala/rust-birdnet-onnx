@@ -14,7 +14,7 @@ jobs:
     name: Validate Release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -40,7 +40,7 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -69,7 +69,7 @@ jobs:
             os: windows-latest
             archive: zip
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -107,8 +107,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -118,11 +119,18 @@ jobs:
           path: artifacts
 
       - name: Generate changelog with Claude
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@beta
         id: changelog
         with:
-          prompt: |
-            Generate a concise changelog for this release. Compare the current tag to the previous tag.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          model: "claude-sonnet-4-20250514"
+          allowed_tools: |
+            Bash(git log:*)
+            Bash(git diff:*)
+            Bash(git tag:*)
+          custom_instructions: |
+            Generate a concise changelog for this release.
+            Compare commits between the current tag and the previous tag.
 
             Format:
             ## What's Changed
@@ -132,7 +140,8 @@ jobs:
             - Keep it under 20 lines total
 
             Output ONLY the changelog markdown, no explanations.
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          direct_prompt: |
+            @claude Generate a changelog for this release by comparing git tags.
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
