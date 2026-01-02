@@ -167,28 +167,30 @@ jobs:
         with:
           path: artifacts
 
-      - name: Generate changelog with Claude
-        uses: anthropics/claude-code-action@v1
+      - name: Generate changelog
         id: changelog
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-opus-4-5-20251101 --allowedTools Bash"
-          prompt: |
-            Generate a concise changelog for this release by comparing git tags.
-            Use `git log` and `git diff` to see what changed since the previous tag.
+        run: |
+          # Get the previous tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
 
-            Format:
-            ## What's Changed
-            - Brief bullet points of user-facing changes
-            - Group by: Features, Fixes, Performance, Documentation
-            - Skip internal refactoring unless significant
-            - Keep it under 20 lines total
+          if [ -z "$PREV_TAG" ]; then
+            echo "## What's Changed" > changelog.md
+            echo "" >> changelog.md
+            echo "Initial release" >> changelog.md
+          else
+            echo "## What's Changed" > changelog.md
+            echo "" >> changelog.md
+            git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges >> changelog.md
+          fi
 
-            Output ONLY the changelog markdown, no explanations.
+          # Set output for use in release step
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          cat changelog.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          body: ${{ steps.changelog.outputs.result }}
+          body: ${{ steps.changelog.outputs.body }}
           files: artifacts/**/*
           generate_release_notes: false
