@@ -170,4 +170,163 @@ mod tests {
         let one_pred = predictions.iter().find(|p| p.species == "one").unwrap();
         assert_eq!(one_pred.index, 1);
     }
+
+    // Edge case tests
+
+    #[test]
+    fn test_sigmoid_infinity() {
+        // Positive infinity should give 1.0
+        let result = sigmoid(f32::INFINITY);
+        assert!((result - 1.0).abs() < f32::EPSILON);
+
+        // Negative infinity should give 0.0
+        let result = sigmoid(f32::NEG_INFINITY);
+        assert!(result.abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_sigmoid_nan() {
+        // NaN should propagate as NaN
+        let result = sigmoid(f32::NAN);
+        assert!(result.is_nan());
+    }
+
+    #[test]
+    fn test_sigmoid_large_values() {
+        // Very large positive values should be close to 1.0
+        let result = sigmoid(100.0);
+        assert!(result > 0.9999);
+
+        // Very large negative values should be close to 0.0
+        let result = sigmoid(-100.0);
+        assert!(result < 0.0001);
+    }
+
+    #[test]
+    fn test_top_k_all_equal_scores() {
+        // When all scores are equal, order is determined by heap behavior
+        let logits = vec![0.5, 0.5, 0.5, 0.5];
+        let labels: Vec<String> = (0..4).map(|i| format!("species_{i}")).collect();
+
+        let predictions = top_k_predictions(&logits, &labels, 2, None);
+
+        assert_eq!(predictions.len(), 2);
+        // All confidences should be the same
+        assert!((predictions[0].confidence - predictions[1].confidence).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_top_k_negative_logits() {
+        let logits = vec![-10.0, -5.0, -1.0, -20.0];
+        let labels: Vec<String> = (0..4).map(|i| format!("species_{i}")).collect();
+
+        let predictions = top_k_predictions(&logits, &labels, 2, None);
+
+        assert_eq!(predictions.len(), 2);
+        // Should still be sorted by confidence
+        assert!(predictions[0].confidence >= predictions[1].confidence);
+        // Highest logit (-1.0) should give highest confidence
+        assert_eq!(predictions[0].index, 2);
+    }
+
+    #[test]
+    fn test_top_k_with_nan_values() {
+        let logits = vec![1.0, f32::NAN, 2.0, 0.5];
+        let labels: Vec<String> = (0..4).map(|i| format!("species_{i}")).collect();
+
+        // Should handle NaN gracefully using total_cmp
+        let predictions = top_k_predictions(&logits, &labels, 3, None);
+
+        // NaN confidence should not pass any filter, but test shouldn't panic
+        assert!(!predictions.is_empty());
+    }
+
+    #[test]
+    fn test_min_confidence_zero() {
+        let logits = vec![-10.0, 0.0, 10.0]; // sigmoid: ~0.00005, 0.5, ~0.99995
+        let labels: Vec<String> = (0..3).map(|i| format!("species_{i}")).collect();
+
+        let predictions = top_k_predictions(&logits, &labels, 10, Some(0.0));
+
+        // All predictions should pass since all confidences are >= 0.0
+        assert_eq!(predictions.len(), 3);
+    }
+
+    #[test]
+    fn test_min_confidence_one() {
+        let logits = vec![-10.0, 0.0, 10.0]; // sigmoid: ~0.00005, 0.5, ~0.99995
+        let labels: Vec<String> = (0..3).map(|i| format!("species_{i}")).collect();
+
+        let predictions = top_k_predictions(&logits, &labels, 10, Some(1.0));
+
+        // Sigmoid asymptotically approaches 1.0 but never reaches it exactly
+        // Even sigmoid(100.0) ≈ 0.9999999999999998 < 1.0
+        // Therefore, min_confidence = 1.0 should filter out all predictions
+        assert_eq!(predictions.len(), 0);
+    }
+
+    #[test]
+    fn test_top_k_max_usize() {
+        let logits = vec![0.1, 0.2, 0.3];
+        let labels: Vec<String> = (0..3).map(|i| format!("species_{i}")).collect();
+
+        // usize::MAX should be clamped to logits.len()
+        let predictions = top_k_predictions(&logits, &labels, usize::MAX, None);
+
+        assert_eq!(predictions.len(), 3);
+    }
+
+    #[test]
+    fn test_missing_labels() {
+        let logits = vec![0.1, 0.2, 0.3, 0.4];
+        let labels = vec!["a".to_string(), "b".to_string()]; // Only 2 labels for 4 logits
+
+        let predictions = top_k_predictions(&logits, &labels, 4, None);
+
+        assert_eq!(predictions.len(), 4);
+
+        // Check that missing labels get "unknown_X" names
+        let unknown_count = predictions
+            .iter()
+            .filter(|p| p.species.starts_with("unknown_"))
+            .count();
+
+        assert_eq!(unknown_count, 2);
+    }
+
+    #[test]
+    fn test_score_entry_ordering() {
+        let entry1 = ScoreEntry {
+            index: 0,
+            score: 1.0,
+        };
+        let entry2 = ScoreEntry {
+            index: 1,
+            score: 2.0,
+        };
+        let entry3 = ScoreEntry {
+            index: 2,
+            score: 1.0,
+        };
+
+        // Reverse order for min-heap
+        assert!(entry1 > entry2); // 1.0 > 2.0 in min-heap ordering
+        assert!(entry1 == entry3); // Equal scores
+    }
+
+    #[test]
+    fn test_score_entry_with_nan() {
+        let entry1 = ScoreEntry {
+            index: 0,
+            score: 1.0,
+        };
+        let entry2 = ScoreEntry {
+            index: 1,
+            score: f32::NAN,
+        };
+
+        // Should not panic with NaN comparisons due to total_cmp
+        let _ = entry1.cmp(&entry2);
+        let _ = entry1.eq(&entry2);
+    }
 }

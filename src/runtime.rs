@@ -148,12 +148,124 @@ pub fn init_runtime() -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
+    #![allow(clippy::disallowed_methods)]
+    #![allow(unsafe_code)]
     use super::*;
+    use std::env;
 
     #[test]
     fn test_find_ort_library_returns_option() {
         // This test just verifies the function doesn't panic
         // The actual result depends on the runtime environment
         let _ = find_ort_library();
+    }
+
+    #[test]
+    fn test_find_ort_library_with_env_var() {
+        // Save original env var if set
+        let original = env::var("ORT_DYLIB_PATH").ok();
+
+        // Test with non-existent path (should return None or fallback)
+        unsafe {
+            env::set_var("ORT_DYLIB_PATH", "/nonexistent/path/libonnxruntime.so");
+        }
+        let result = find_ort_library();
+        // Should either return None or find a system library
+        let _ = result;
+
+        // Restore original env var
+        unsafe {
+            if let Some(val) = original {
+                env::set_var("ORT_DYLIB_PATH", val);
+            } else {
+                env::remove_var("ORT_DYLIB_PATH");
+            }
+        }
+    }
+
+    #[test]
+    fn test_find_ort_library_env_var_precedence() {
+        // Save original env var
+        let original = env::var("ORT_DYLIB_PATH").ok();
+
+        // If ORT_DYLIB_PATH is set to an existing file, it should be returned
+        if let Some(ref path) = original {
+            let path_buf = PathBuf::from(path);
+            if path_buf.exists() {
+                unsafe {
+                    env::set_var("ORT_DYLIB_PATH", path);
+                }
+                let result = find_ort_library();
+                assert!(result.is_some());
+                assert_eq!(result.unwrap(), path_buf);
+            }
+        }
+
+        // Restore
+        unsafe {
+            if let Some(val) = original {
+                env::set_var("ORT_DYLIB_PATH", val);
+            } else {
+                env::remove_var("ORT_DYLIB_PATH");
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn test_find_linux_lib_nonexistent_dir() {
+        let fake_dir = PathBuf::from("/nonexistent/directory/that/does/not/exist");
+        let result = find_linux_lib(&fake_dir);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn test_find_linux_lib_empty_dir() {
+        // Use /tmp as a directory that exists but likely doesn't have ONNX runtime
+        let tmp_dir = env::temp_dir();
+        let result = find_linux_lib(&tmp_dir);
+        // Should return None if no library is found
+        // (This could be Some if someone actually has libonnxruntime.so in /tmp)
+        let _ = result;
+    }
+
+    #[test]
+    fn test_init_runtime_doesnt_panic() {
+        // Test that init_runtime doesn't panic
+        // The actual result depends on whether a library is found
+        let result = init_runtime();
+        // Either succeeds or fails with an error, but shouldn't panic
+        let _ = result;
+    }
+
+    #[test]
+    fn test_init_runtime_multiple_calls() {
+        // Calling init_runtime multiple times should not panic
+        let _ = init_runtime();
+        let _ = init_runtime();
+        let _ = init_runtime();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_find_linux_lib_with_current_dir() {
+        // Test finding library relative to current directory
+        let cwd = env::current_dir().unwrap();
+        let result = find_linux_lib(&cwd);
+
+        // If lib/libonnxruntime.so exists in cwd, it should be found
+        let expected = cwd.join("lib").join("libonnxruntime.so");
+        if expected.exists() {
+            assert_eq!(result, Some(expected));
+        }
+    }
+
+    #[test]
+    fn test_find_ort_library_consistent_results() {
+        // Calling multiple times should give consistent results
+        let result1 = find_ort_library();
+        let result2 = find_ort_library();
+        assert_eq!(result1, result2);
     }
 }

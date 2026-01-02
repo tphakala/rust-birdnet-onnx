@@ -96,6 +96,30 @@ pub fn random_logits(count: usize, seed: u64) -> Vec<f32> {
         .collect()
 }
 
+/// Create mock logits with known top predictions
+pub fn mock_logits_with_top_k(total_count: usize, top_indices: &[(usize, f32)]) -> Vec<f32> {
+    let mut logits = vec![-5.0; total_count];
+    for &(idx, score) in top_indices {
+        if idx < total_count {
+            logits[idx] = score;
+        }
+    }
+    logits
+}
+
+/// Create mock embeddings for testing
+pub fn mock_embeddings(dim: usize, seed: u64) -> Vec<f32> {
+    // Simple deterministic embeddings
+    let mut state = seed;
+    (0..dim)
+        .map(|_| {
+            state = state.wrapping_mul(1_103_515_245).wrapping_add(12345);
+            let bits = ((state >> 16) & 0xFFFF) as f32;
+            bits / 65535.0 // Range [0, 1]
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::disallowed_methods)]
@@ -171,5 +195,45 @@ mod tests {
         for &v in &logits1 {
             assert!((-5.0..=5.0).contains(&v));
         }
+    }
+
+    #[test]
+    fn test_mock_logits_with_top_k() {
+        let logits = mock_logits_with_top_k(100, &[(10, 3.0), (25, 2.5), (50, 2.0)]);
+
+        assert_eq!(logits.len(), 100);
+        assert!((logits[10] - 3.0).abs() < f32::EPSILON);
+        assert!((logits[25] - 2.5).abs() < f32::EPSILON);
+        assert!((logits[50] - 2.0).abs() < f32::EPSILON);
+        assert!((logits[0] - -5.0).abs() < f32::EPSILON); // Default value
+    }
+
+    #[test]
+    fn test_mock_logits_with_top_k_out_of_bounds() {
+        // Should not panic with out of bounds index
+        let logits = mock_logits_with_top_k(10, &[(5, 3.0), (100, 2.0)]);
+        assert_eq!(logits.len(), 10);
+        assert!((logits[5] - 3.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_mock_embeddings() {
+        let emb1 = mock_embeddings(1024, 42);
+        let emb2 = mock_embeddings(1024, 42);
+
+        // Same seed should produce same values
+        assert_eq!(emb1, emb2);
+
+        // Check length
+        assert_eq!(emb1.len(), 1024);
+
+        // Check range [0, 1]
+        for &v in &emb1 {
+            assert!((0.0..=1.0).contains(&v));
+        }
+
+        // Different seed produces different values
+        let emb3 = mock_embeddings(1024, 123);
+        assert_ne!(emb1, emb3);
     }
 }
