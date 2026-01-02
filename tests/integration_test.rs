@@ -466,9 +466,9 @@ fn test_range_filter_with_real_model() {
         return;
     }
 
-    // Load labels from BirdNET v2.4 test fixture
-    let labels_path = format!("{FIXTURES_DIR}/birdnet_v24_labels.txt");
-    let labels_content = std::fs::read_to_string(&labels_path).expect("failed to read labels");
+    // Load labels from BirdNET v2.4 labels file
+    let labels_path = "data/labels/birdnet_v2.4/BirdNET_GLOBAL_6K_V2.4_Labels_en_uk.txt";
+    let labels_content = std::fs::read_to_string(labels_path).expect("failed to read labels");
     let labels: Vec<String> = labels_content.lines().map(String::from).collect();
 
     let range_filter = RangeFilter::builder()
