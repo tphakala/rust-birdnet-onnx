@@ -132,8 +132,7 @@ jobs:
             - Keep it under 20 lines total
 
             Output ONLY the changelog markdown, no explanations.
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

@@ -39,5 +39,4 @@ jobs:
 
             Be concise. Only comment on issues worth fixing.
             Praise is not needed - focus on problems.
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
