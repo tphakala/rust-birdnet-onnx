@@ -1,0 +1,43 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+
+jobs:
+  review:
+    name: AI Code Review
+    runs-on: ubuntu-latest
+    # Skip for dependabot PRs (they're automated updates)
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Claude Code Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          prompt: |
+            Review this PR for a Rust library (birdnet-onnx). Focus on:
+
+            1. **Correctness**: Logic errors, edge cases, error handling
+            2. **Safety**: No unsafe code allowed (denied in Cargo.toml)
+            3. **Performance**: ONNX inference is performance-critical
+            4. **API Design**: Public API should be ergonomic and well-documented
+            5. **Testing**: Are changes adequately tested?
+
+            Style rules (from Cargo.toml lints):
+            - pedantic clippy enabled
+            - no unwrap/expect/panic in library code
+            - no print_stdout/print_stderr in library code
+
+            Be concise. Only comment on issues worth fixing.
+            Praise is not needed - focus on problems.
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
