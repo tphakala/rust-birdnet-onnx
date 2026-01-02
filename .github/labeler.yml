@@ -1,0 +1,22 @@
+# Auto-label PRs based on changed files
+
+documentation:
+  - docs/**/*
+  - "*.md"
+  - README.md
+
+dependencies:
+  - Cargo.toml
+  - Cargo.lock
+
+ci:
+  - .github/**/*
+
+tests:
+  - tests/**/*
+
+examples:
+  - examples/**/*
+
+source:
+  - src/**/*
