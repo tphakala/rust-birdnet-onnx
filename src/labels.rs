@@ -222,4 +222,116 @@ mod tests {
         let err = result.unwrap_err();
         assert!(err.to_string().contains("failed to load labels"));
     }
+
+    // Edge case tests
+
+    #[test]
+    fn test_parse_text_labels_empty_lines() {
+        let content = "Species 1\n\nSpecies 2\n\n\nSpecies 3";
+        let labels = parse_text_labels(content);
+        // Empty lines should be skipped
+        assert_eq!(labels.len(), 3);
+        assert_eq!(labels, vec!["Species 1", "Species 2", "Species 3"]);
+    }
+
+    #[test]
+    fn test_parse_text_labels_with_unicode() {
+        let content = "Pingüino Emperador\n鸟类\nПтица\n🐦";
+        let labels = parse_text_labels(content);
+        assert_eq!(labels.len(), 4);
+        assert_eq!(labels[0], "Pingüino Emperador");
+        assert_eq!(labels[1], "鸟类");
+        assert_eq!(labels[2], "Птица");
+        assert_eq!(labels[3], "🐦");
+    }
+
+    #[test]
+    fn test_parse_text_labels_with_special_chars() {
+        let content = "Species (Common)\nSpecies-rare\nSpecies_variant\nSpecies's";
+        let labels = parse_text_labels(content);
+        assert_eq!(labels.len(), 4);
+        assert_eq!(labels[0], "Species (Common)");
+        assert_eq!(labels[1], "Species-rare");
+        assert_eq!(labels[2], "Species_variant");
+        assert_eq!(labels[3], "Species's");
+    }
+
+    #[test]
+    fn test_parse_csv_labels_inconsistent_columns() {
+        let content = "label,scientific\nSpecies 1,Name1,Extra\nSpecies 2,Name2";
+        // CSV parsing should handle rows with different column counts
+        let result = parse_csv_labels(content);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_parse_csv_labels_empty_values() {
+        let content = "label\n\nSpecies 1\n\nSpecies 2";
+        let labels = parse_csv_labels(content).unwrap();
+        // Empty rows should result in empty string labels
+        assert!(labels.len() >= 2);
+    }
+
+    #[test]
+    fn test_parse_json_array_empty() {
+        let content = "[]";
+        let labels = parse_json_labels(content).unwrap();
+        assert!(labels.is_empty());
+    }
+
+    #[test]
+    fn test_parse_json_array_with_unicode() {
+        let content = r#"["Pingüino", "鸟类", "Птица"]"#;
+        let labels = parse_json_labels(content).unwrap();
+        assert_eq!(labels.len(), 3);
+        assert_eq!(labels[0], "Pingüino");
+        assert_eq!(labels[1], "鸟类");
+        assert_eq!(labels[2], "Птица");
+    }
+
+    #[test]
+    fn test_parse_json_array_of_objects_missing_keys() {
+        let content = r#"[{"name": "Species 1"}, {"other": "Species 2"}]"#;
+        let result = parse_json_labels(content);
+        // Objects without name/label/species keys are filtered out
+        assert!(result.is_ok());
+        let labels = result.unwrap();
+        assert_eq!(labels.len(), 1); // Only the first object has a valid key
+        assert_eq!(labels[0], "Species 1");
+    }
+
+    #[test]
+    fn test_parse_json_deeply_nested() {
+        let content = r#"{"data": {"labels": ["Species 1"]}}"#;
+        let result = parse_json_labels(content);
+        // Only supports one level of nesting
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_json_array_of_objects_species_key() {
+        let content = r#"[{"species": "American Robin"}, {"species": "Northern Cardinal"}]"#;
+        let labels = parse_json_labels(content).unwrap();
+        assert_eq!(labels, vec!["American Robin", "Northern Cardinal"]);
+    }
+
+    #[test]
+    fn test_parse_text_labels_only_whitespace() {
+        let content = "   \n\t\n  \n";
+        let labels = parse_text_labels(content);
+        // All empty/whitespace lines should be filtered out
+        assert!(labels.is_empty());
+    }
+
+    #[test]
+    fn test_parse_csv_labels_quoted_values() {
+        let content = r#"label
+"Species, with comma"
+"Species with ""quotes"""
+Species normal"#;
+        let labels = parse_csv_labels(content).unwrap();
+        assert!(labels.len() >= 2);
+        // CSV parser should handle quoted values properly
+        assert!(labels[0].contains("comma") || labels[0].contains("quotes"));
+    }
 }
