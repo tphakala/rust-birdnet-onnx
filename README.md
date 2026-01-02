@@ -127,6 +127,32 @@ Model: BirdNET v2.4 (3.0s segments, 1.5s overlap)
 134 segments analyzed in 1.2s
 ```
 
+## Range Filter (Meta Model)
+
+Filter species predictions by location and date using BirdNET's meta model:
+
+```rust
+use birdnet_onnx::RangeFilter;
+
+// Load the meta model
+let range_filter = RangeFilter::builder()
+    .model_path("birdnet_data_model.onnx")
+    .labels(labels)
+    .threshold(0.01)
+    .build()?;
+
+// Get species likely at location/date
+// Helsinki, Finland on June 15th
+let scores = range_filter.predict(60.1695, 24.9354, 6, 15)?;
+
+println!("Expected {} species", scores.len());
+for score in scores.iter().take(10) {
+    println!("{}: {:.1}%", score.species, score.score * 100.0);
+}
+```
+
+The meta model uses BirdNET's 48-week calendar (4 weeks per month).
+
 ## Development
 
 Requires [Task](https://taskfile.dev/) runner:

@@ -10,7 +10,7 @@
 #![allow(clippy::items_after_statements)] // Allow use imports in tests
 #![allow(clippy::unnecessary_wraps)] // Tests can return Result for consistency
 
-use birdnet_onnx::{Classifier, ModelType, Result};
+use birdnet_onnx::{Classifier, ModelType, RangeFilter, Result, init_runtime};
 use std::path::Path;
 
 const FIXTURES_DIR: &str = "tests/fixtures";
@@ -443,4 +443,116 @@ fn test_label_count_mismatch() -> Result<()> {
     );
 
     Ok(())
+}
+
+#[test]
+#[allow(clippy::expect_used, clippy::print_stdout)]
+fn test_range_filter_with_real_model() {
+    init_runtime().expect("failed to init runtime");
+
+    // Get model path from environment variable (for local testing only)
+    // CI will skip this test since BIRDNET_META_MODEL won't be set
+    let Ok(model_path) = std::env::var("BIRDNET_META_MODEL") else {
+        eprintln!("Skipping test: BIRDNET_META_MODEL environment variable not set");
+        eprintln!(
+            "To run this test locally: export BIRDNET_META_MODEL=/path/to/birdnet_data_model.onnx"
+        );
+        return;
+    };
+
+    // Skip if model doesn't exist
+    if !std::path::Path::new(&model_path).exists() {
+        eprintln!("Skipping test: meta model not found at {model_path}");
+        return;
+    }
+
+    // Load labels from BirdNET v2.4 test fixture
+    let labels_path = format!("{FIXTURES_DIR}/birdnet_v24_labels.txt");
+    let labels_content = std::fs::read_to_string(&labels_path).expect("failed to read labels");
+    let labels: Vec<String> = labels_content.lines().map(String::from).collect();
+
+    let range_filter = RangeFilter::builder()
+        .model_path(&model_path)
+        .labels(labels)
+        .threshold(0.01)
+        .build()
+        .expect("failed to build range filter");
+
+    // Test prediction for Helsinki, Finland in June
+    let scores = range_filter
+        .predict(60.1695, 24.9354, 6, 15)
+        .expect("prediction failed");
+
+    assert!(!scores.is_empty(), "should return some species");
+
+    // Verify scores are sorted descending
+    for i in 1..scores.len() {
+        assert!(
+            scores[i - 1].score >= scores[i].score,
+            "scores should be sorted descending"
+        );
+    }
+
+    // Verify all scores are above threshold
+    for score in &scores {
+        assert!(score.score >= 0.01, "all scores should be >= threshold");
+    }
+
+    println!("Range filter returned {} species", scores.len());
+    if !scores.is_empty() {
+        println!(
+            "Top species: {} (score: {:.4})",
+            scores[0].species, scores[0].score
+        );
+    }
+}
+
+#[test]
+#[allow(clippy::expect_used)]
+fn test_range_filter_invalid_inputs() {
+    init_runtime().expect("failed to init runtime");
+
+    // Get model path from environment variable
+    let Ok(model_path) = std::env::var("BIRDNET_META_MODEL") else {
+        return;
+    };
+
+    if !std::path::Path::new(&model_path).exists() {
+        return;
+    }
+
+    // Load actual labels to match model output dimension
+    let labels_path = format!("{FIXTURES_DIR}/birdnet_v24_labels.txt");
+    let labels_content = std::fs::read_to_string(&labels_path).expect("failed to read labels");
+    let labels: Vec<String> = labels_content.lines().map(String::from).collect();
+
+    let range_filter = RangeFilter::builder()
+        .model_path(&model_path)
+        .labels(labels)
+        .build()
+        .expect("failed to build");
+
+    // Test invalid latitude
+    let result = range_filter.predict(95.0, 0.0, 1, 1);
+    assert!(result.is_err());
+
+    // Test invalid longitude
+    let result = range_filter.predict(0.0, 190.0, 1, 1);
+    assert!(result.is_err());
+
+    // Test invalid month (zero)
+    let result = range_filter.predict(0.0, 0.0, 0, 1);
+    assert!(result.is_err());
+
+    // Test invalid month (> 12)
+    let result = range_filter.predict(0.0, 0.0, 13, 1);
+    assert!(result.is_err());
+
+    // Test invalid day (zero)
+    let result = range_filter.predict(0.0, 0.0, 1, 0);
+    assert!(result.is_err());
+
+    // Test invalid day (> 31)
+    let result = range_filter.predict(0.0, 0.0, 1, 32);
+    assert!(result.is_err());
 }

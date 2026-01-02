@@ -37,6 +37,7 @@ mod detection;
 mod error;
 mod labels;
 mod postprocess;
+mod rangefilter;
 mod runtime;
 #[cfg(test)]
 mod testutil;
@@ -44,8 +45,11 @@ mod types;
 
 pub use classifier::{Classifier, ClassifierBuilder};
 pub use error::{Error, Result};
+pub use rangefilter::{
+    RangeFilter, RangeFilterBuilder, calculate_week, validate_coordinates, validate_date,
+};
 pub use runtime::init_runtime;
-pub use types::{LabelFormat, ModelConfig, ModelType, Prediction, PredictionResult};
+pub use types::{LabelFormat, LocationScore, ModelConfig, ModelType, Prediction, PredictionResult};
 
 // Re-export ort execution providers for convenience
 pub use ort::execution_providers;

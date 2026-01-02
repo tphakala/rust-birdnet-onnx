@@ -109,6 +109,17 @@ pub struct PredictionResult {
     pub raw_scores: Vec<f32>,
 }
 
+/// Species probability score from meta model based on location and date.
+#[derive(Debug, Clone)]
+pub struct LocationScore {
+    /// Species name from labels.
+    pub species: String,
+    /// Probability score (0.0 - 1.0) for this species at given location/time.
+    pub score: f32,
+    /// Index in model output.
+    pub index: usize,
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
@@ -157,5 +168,17 @@ mod tests {
             let expected = (model.sample_rate() as f32 * model.segment_duration()) as usize;
             assert_eq!(model.sample_count(), expected);
         }
+    }
+
+    #[test]
+    fn test_location_score_creation() {
+        let score = LocationScore {
+            species: "Turdus merula_Common Blackbird".to_string(),
+            score: 0.85,
+            index: 42,
+        };
+        assert_eq!(score.species, "Turdus merula_Common Blackbird");
+        assert_eq!(score.score, 0.85);
+        assert_eq!(score.index, 42);
     }
 }
