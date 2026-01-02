@@ -123,7 +123,7 @@ jobs:
         id: changelog
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-sonnet-4-20250514 --allowedTools Bash"
+          claude_args: "--model claude-opus-4-5-20251101 --allowedTools Bash"
           prompt: |
             Generate a concise changelog for this release by comparing git tags.
             Use `git log` and `git diff` to see what changed since the previous tag.
