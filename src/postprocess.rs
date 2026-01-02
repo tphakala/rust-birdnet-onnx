@@ -259,8 +259,10 @@ mod tests {
 
         let predictions = top_k_predictions(&logits, &labels, 10, Some(1.0));
 
-        // Only predictions with confidence >= 1.0 should pass (none or very few)
-        assert!(predictions.len() <= 1); // At most one might be >= 1.0 with floating point precision
+        // Sigmoid asymptotically approaches 1.0 but never reaches it exactly
+        // Even sigmoid(100.0) ≈ 0.9999999999999998 < 1.0
+        // Therefore, min_confidence = 1.0 should filter out all predictions
+        assert_eq!(predictions.len(), 0);
     }
 
     #[test]

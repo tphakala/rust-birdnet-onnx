@@ -260,16 +260,16 @@ mod tests {
     fn test_parse_csv_labels_inconsistent_columns() {
         let content = "label,scientific\nSpecies 1,Name1,Extra\nSpecies 2,Name2";
         // CSV parsing should handle rows with different column counts
-        let result = parse_csv_labels(content);
-        assert!(result.is_ok());
+        let labels = parse_csv_labels(content).unwrap();
+        assert_eq!(labels, vec!["Species 1", "Species 2"]);
     }
 
     #[test]
     fn test_parse_csv_labels_empty_values() {
         let content = "label\n\nSpecies 1\n\nSpecies 2";
         let labels = parse_csv_labels(content).unwrap();
-        // Empty rows should result in empty string labels
-        assert!(labels.len() >= 2);
+        // Empty rows are filtered out by the parser (line 73: if !label.is_empty())
+        assert_eq!(labels, vec!["Species 1", "Species 2"]);
     }
 
     #[test]
@@ -330,8 +330,14 @@ mod tests {
 "Species with ""quotes"""
 Species normal"#;
         let labels = parse_csv_labels(content).unwrap();
-        assert!(labels.len() >= 2);
-        // CSV parser should handle quoted values properly
-        assert!(labels[0].contains("comma") || labels[0].contains("quotes"));
+        // CSV parser should handle quoted values with commas and escaped quotes
+        assert_eq!(
+            labels,
+            vec![
+                "Species, with comma",
+                "Species with \"quotes\"",
+                "Species normal"
+            ]
+        );
     }
 }

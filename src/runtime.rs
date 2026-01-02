@@ -247,14 +247,6 @@ mod tests {
         let _ = init_runtime();
     }
 
-    #[test]
-    fn test_pathbuf_from_env_nonexistent() {
-        let fake_path = "/this/path/definitely/does/not/exist/libonnxruntime.so";
-        let path_buf = PathBuf::from(fake_path);
-        assert!(!path_buf.exists());
-        // Verifies PathBuf creation doesn't validate existence
-    }
-
     #[cfg(target_os = "linux")]
     #[test]
     fn test_find_linux_lib_with_current_dir() {

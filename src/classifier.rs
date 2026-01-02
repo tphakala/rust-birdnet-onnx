@@ -502,31 +502,22 @@ mod tests {
             .labels(vec!["species1".to_string()])
             .build();
 
-        assert!(result.is_err());
-        if let Err(err) = result {
-            assert!(matches!(err, Error::ModelPathRequired));
-        }
+        assert!(matches!(result, Err(Error::ModelPathRequired)));
     }
 
     #[test]
     fn test_builder_missing_labels() {
         let result = ClassifierBuilder::new().model_path("model.onnx").build();
 
-        assert!(result.is_err());
-        if let Err(err) = result {
-            assert!(matches!(err, Error::LabelsRequired));
-        }
+        assert!(matches!(result, Err(Error::LabelsRequired)));
     }
 
     #[test]
     fn test_builder_missing_both() {
         let result = ClassifierBuilder::new().build();
 
-        assert!(result.is_err());
         // Should fail on model path first
-        if let Err(err) = result {
-            assert!(matches!(err, Error::ModelPathRequired));
-        }
+        assert!(matches!(result, Err(Error::ModelPathRequired)));
     }
 
     #[test]
@@ -565,6 +556,13 @@ mod tests {
 
     #[test]
     fn test_builder_min_confidence_boundaries() {
+        // Note: The builder intentionally doesn't validate min_confidence bounds.
+        // Values outside [0.0, 1.0] are allowed because:
+        // - Validation happens at runtime during filtering, not at build time
+        // - This gives users flexibility to set aggressive thresholds
+        // - Values >1.0 will filter out all results (sigmoid output is always <1)
+        // - Values <0.0 will filter out nothing (sigmoid output is always >0)
+
         let builder = ClassifierBuilder::new().min_confidence(0.0);
         assert_eq!(builder.min_confidence, Some(0.0));
 
@@ -572,10 +570,10 @@ mod tests {
         assert_eq!(builder.min_confidence, Some(1.0));
 
         let builder = ClassifierBuilder::new().min_confidence(1.5);
-        assert_eq!(builder.min_confidence, Some(1.5));
+        assert_eq!(builder.min_confidence, Some(1.5)); // Will filter all results
 
         let builder = ClassifierBuilder::new().min_confidence(-0.5);
-        assert_eq!(builder.min_confidence, Some(-0.5));
+        assert_eq!(builder.min_confidence, Some(-0.5)); // Will filter nothing
     }
 
     #[test]
