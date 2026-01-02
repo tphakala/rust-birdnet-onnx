@@ -45,6 +45,28 @@ struct Args {
     model_type: Option<String>,
 }
 
+/// Parse model type from CLI argument.
+fn parse_model_type(arg: Option<&str>) -> Result<Option<ModelType>> {
+    match arg {
+        Some("v24") => Ok(Some(ModelType::BirdNetV24)),
+        Some("v30") => Ok(Some(ModelType::BirdNetV30)),
+        Some("perch") => Ok(Some(ModelType::PerchV2)),
+        Some(other) => Err(birdnet_onnx::Error::ModelDetection {
+            reason: format!("unknown model type '{other}', expected: v24, v30, perch"),
+        }),
+        None => Ok(None),
+    }
+}
+
+/// Get display name for model type.
+const fn model_display_name(model_type: ModelType) -> &'static str {
+    match model_type {
+        ModelType::BirdNetV24 => "BirdNET v2.4",
+        ModelType::BirdNetV30 => "BirdNET v3.0",
+        ModelType::PerchV2 => "Perch v2",
+    }
+}
+
 fn main() {
     if let Err(e) = run() {
         eprintln!("error: {e}");
@@ -59,17 +81,7 @@ fn run() -> Result<()> {
     init_runtime()?;
 
     // Parse model type override if provided
-    let model_type_override = match args.model_type.as_deref() {
-        Some("v24") => Some(ModelType::BirdNetV24),
-        Some("v30") => Some(ModelType::BirdNetV30),
-        Some("perch") => Some(ModelType::PerchV2),
-        Some(other) => {
-            return Err(birdnet_onnx::Error::ModelDetection {
-                reason: format!("unknown model type '{other}', expected: v24, v30, perch"),
-            });
-        }
-        None => None,
-    };
+    let model_type_override = parse_model_type(args.model_type.as_deref())?;
 
     // Build classifier
     let mut builder = Classifier::builder()
@@ -109,11 +121,7 @@ fn run() -> Result<()> {
     }
 
     // Print header
-    let model_name = match config.model_type {
-        ModelType::BirdNetV24 => "BirdNET v2.4",
-        ModelType::BirdNetV30 => "BirdNET v3.0",
-        ModelType::PerchV2 => "Perch v2",
-    };
+    let model_name = model_display_name(config.model_type);
     println!(
         "Analyzing: {} ({}, {} Hz)",
         args.audio_file.display(),
