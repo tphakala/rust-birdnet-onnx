@@ -48,8 +48,12 @@ jobs:
         uses: EmbarkStudios/cargo-deny-action@v2
 
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -70,3 +74,27 @@ jobs:
 
       - name: Run tests
         run: cargo test --no-fail-fast
+
+  msrv:
+    name: MSRV (1.92)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust 1.92
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-msrv-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-msrv-
+
+      - name: Check compilation
+        run: cargo check --all-targets
