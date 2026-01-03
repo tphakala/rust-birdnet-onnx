@@ -30,6 +30,7 @@ macro_rules! skip_if_no_onnx {
 
 #[test]
 fn available_providers_includes_cpu() {
+    skip_if_no_onnx!();
     let providers = available_execution_providers();
 
     // CPU should always be available
