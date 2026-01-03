@@ -80,8 +80,7 @@ mod tests {
         for provider in &providers {
             assert!(
                 seen.insert(provider),
-                "Duplicate provider found: {:?}",
-                provider
+                "Duplicate provider found: {provider:?}"
             );
         }
     }
