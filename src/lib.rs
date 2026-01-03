@@ -39,6 +39,7 @@ mod labels;
 mod postprocess;
 mod rangefilter;
 mod runtime;
+pub mod tensorrt_config;
 #[cfg(test)]
 pub mod testutil;
 mod types;
@@ -50,6 +51,7 @@ pub use rangefilter::{
     RangeFilter, RangeFilterBuilder, calculate_week, validate_coordinates, validate_date,
 };
 pub use runtime::init_runtime;
+pub use tensorrt_config::TensorRTConfig;
 pub use types::{
     ExecutionProviderInfo, LabelFormat, LocationScore, ModelConfig, ModelType, Prediction,
     PredictionResult,
