@@ -64,12 +64,14 @@ When your working set exceeds ~40-50% of VRAM:
 
 Tested with BirdNET v2.4 on 3,600 segments:
 
-| Batch | VRAM | Time  | Throughput | GPU Util | Result |
-|-------|------|-------|------------|----------|--------|
-| 160   | 5.25 GB | 5.4s  | 667 seg/s  | ~17%     | ✅ Optimal |
-| 192   | 6.25 GB | 5.4s  | **667 seg/s** | ~17%  | ✅ **Best** |
-| 224   | 6.26 GB | 5.6s  | 643 seg/s  | 17%      | ✅ Good |
-| 256   | 8.33 GB | 34.6s | 104 seg/s  | **3%**   | ❌ **Catastrophic** |
+| Batch | VRAM    | Time  | Throughput    | GPU Util | Result              |
+|-------|---------|-------|---------------|----------|---------------------|
+| 160   | 5.25 GB | 5.4s  | 667 seg/s     | ~17%     | Good                |
+| 192   | 6.25 GB | 5.4s  | **667 seg/s** | ~17%     | **Optimal**         |
+| 224   | 6.26 GB | 5.6s  | 643 seg/s     | 17%      | Minor degradation   |
+| 256   | 8.33 GB | 34.6s | 104 seg/s     | **3%**   | **Catastrophic**    |
+
+**Note:** Batch 160 and 192 achieve identical throughput, but 192 is optimal because it uses 39% VRAM (matching the 40% rule) and represents the maximum safe batch size before degradation begins at 224.
 
 **Key finding:** Batch 256 uses only 52% of VRAM but runs **6x slower** than batch 192!
 

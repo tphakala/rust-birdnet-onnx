@@ -158,7 +158,7 @@ Use a representative audio file (similar length to typical use case).
 - Degradation at: 512+
 - Max VRAM: 10-14 GB
 
-**Note**: Optimal batch often uses **only 50-60% of total VRAM** due to memory bandwidth limits!
+**Note**: Optimal batch often uses **only 40-50% of total VRAM** due to memory bandwidth limits!
 
 ## Troubleshooting
 
