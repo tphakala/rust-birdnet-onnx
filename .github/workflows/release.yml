@@ -183,10 +183,13 @@ jobs:
             git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges >> changelog.md
           fi
 
-          # Set output for use in release step
-          echo "body<<EOF" >> $GITHUB_OUTPUT
-          cat changelog.md >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          # Set output for use in release step with random delimiter
+          delimiter="$(openssl rand -hex 8)"
+          {
+            echo "body<<${delimiter}"
+            cat changelog.md
+            echo "${delimiter}"
+          } >> $GITHUB_OUTPUT
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
