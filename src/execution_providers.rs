@@ -25,7 +25,7 @@ use ort::execution_providers::{
 /// # Example
 ///
 /// ```
-/// use birdnet_onnx::execution_providers::available_execution_providers;
+/// use birdnet_onnx::available_execution_providers;
 ///
 /// let providers = available_execution_providers();
 /// assert!(!providers.is_empty());
