@@ -602,3 +602,85 @@ fn test_range_filter_from_classifier_labels() {
 
     assert!(!scores.is_empty());
 }
+
+#[test]
+#[allow(clippy::expect_used, clippy::print_stdout)]
+fn test_range_filter_complete_workflow() {
+    init_runtime().expect("failed to init runtime");
+
+    // Get model path from environment variable
+    let Ok(model_path) = std::env::var("BIRDNET_META_MODEL") else {
+        eprintln!("Skipping test: BIRDNET_META_MODEL environment variable not set");
+        eprintln!(
+            "To run this test locally: export BIRDNET_META_MODEL=/path/to/birdnet_data_model.onnx"
+        );
+        return;
+    };
+
+    // Skip if meta model doesn't exist
+    if !Path::new(&model_path).exists() {
+        eprintln!("Skipping test: meta model not found at {model_path}");
+        return;
+    }
+
+    // Load classifier with actual model (if available)
+    let classifier_model_path = format!("{FIXTURES_DIR}/birdnet_v24.onnx");
+    if !Path::new(&classifier_model_path).exists() {
+        eprintln!("Skipping test: classifier model not found");
+        return;
+    }
+
+    let classifier = Classifier::builder()
+        .model_path(&classifier_model_path)
+        .labels_path(format!("{FIXTURES_DIR}/birdnet_v24_labels.txt"))
+        .build()
+        .expect("failed to build classifier");
+
+    // Build range filter from classifier labels
+    let range_filter = RangeFilter::builder()
+        .model_path(&model_path)
+        .from_classifier_labels(classifier.labels())
+        .threshold(0.01)
+        .build()
+        .expect("failed to build range filter");
+
+    // Create mock predictions
+    use birdnet_onnx::Prediction;
+    let predictions = vec![
+        Prediction {
+            species: classifier.labels()[0].clone(),
+            confidence: 0.8,
+            index: 0,
+        },
+        Prediction {
+            species: classifier.labels()[1].clone(),
+            confidence: 0.6,
+            index: 1,
+        },
+    ];
+
+    // Get location scores (Helsinki, June 15)
+    let location_scores = range_filter
+        .predict(60.1695, 24.9354, 6, 15)
+        .expect("prediction failed");
+
+    // Filter predictions
+    let filtered = range_filter.filter_predictions(&predictions, &location_scores, false);
+
+    // Should have some results (exact count depends on location scores)
+    println!(
+        "Original: {}, Filtered: {}",
+        predictions.len(),
+        filtered.len()
+    );
+
+    // Test batch filtering
+    let batch = vec![predictions.clone(), predictions];
+    let filtered_batch = range_filter.filter_batch_predictions(
+        batch,
+        &location_scores,
+        true, // with reranking
+    );
+
+    assert_eq!(filtered_batch.len(), 2);
+}
