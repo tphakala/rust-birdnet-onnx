@@ -1,8 +1,61 @@
 //! Range filter for location and date-based species filtering
+//!
+//! # Usage Examples
+//!
+//! ## Basic Filtering
+//!
+//! ```ignore
+//! use birdnet_onnx::{Classifier, RangeFilter};
+//!
+//! let classifier = Classifier::builder()
+//!     .model_path("birdnet.onnx")
+//!     .labels_path("labels.txt")
+//!     .build()?;
+//!
+//! let range_filter = RangeFilter::builder()
+//!     .model_path("meta_model.onnx")
+//!     .from_classifier_labels(classifier.labels())
+//!     .threshold(0.01)
+//!     .build()?;
+//!
+//! // Get predictions
+//! let result = classifier.predict(&audio_segment)?;
+//!
+//! // Get location scores
+//! let location_scores = range_filter.predict(60.17, 24.94, 6, 15)?;
+//!
+//! // Filter predictions
+//! let filtered = range_filter.filter_predictions(
+//!     &result.predictions,
+//!     &location_scores,
+//!     false, // don't rerank
+//! );
+//! ```
+//!
+//! ## Batch Processing
+//!
+//! ```ignore
+//! // Calculate location scores once
+//! let location_scores = range_filter.predict(lat, lon, month, day)?;
+//!
+//! // Process multiple audio segments
+//! let mut predictions_batch = Vec::new();
+//! for segment in audio_segments {
+//!     let result = classifier.predict(&segment)?;
+//!     predictions_batch.push(result.predictions);
+//! }
+//!
+//! // Filter all at once
+//! let filtered_batch = range_filter.filter_batch_predictions(
+//!     predictions_batch,
+//!     &location_scores,
+//!     true, // rerank by location score
+//! );
+//! ```
 
 use crate::error::{Error, Result};
 use crate::labels::parse_labels;
-use crate::types::{LabelFormat, LocationScore};
+use crate::types::{LabelFormat, LocationScore, Prediction};
 use ndarray::Array2;
 use ort::session::Session;
 use ort::value::Value;
@@ -134,6 +187,16 @@ impl RangeFilterBuilder {
         self
     }
 
+    /// Use labels from an existing Classifier.
+    ///
+    /// This is a convenience method that copies labels from a classifier,
+    /// ensuring they stay in sync with the main model.
+    #[must_use]
+    pub fn from_classifier_labels(mut self, labels: &[String]) -> Self {
+        self.labels = Some(Labels::InMemory(labels.to_vec()));
+        self
+    }
+
     /// Add an execution provider (GPU, CPU, etc.)
     #[must_use]
     pub fn execution_provider(
@@ -239,6 +302,87 @@ fn extract_last_dim(shape: &[i64]) -> Result<usize> {
     usize::try_from(value).map_err(|_| Error::ModelDetection {
         reason: format!("invalid dimension: {value}"),
     })
+}
+
+/// Filter multiple prediction sets with the same location scores.
+///
+/// This is a helper for batch processing - runs filtering on each
+/// prediction set using the same location scores.
+fn filter_batch_predictions_impl(
+    predictions_batch: Vec<Vec<crate::types::Prediction>>,
+    location_scores: &[LocationScore],
+    threshold: f32,
+    rerank: bool,
+) -> Vec<Vec<crate::types::Prediction>> {
+    predictions_batch
+        .into_iter()
+        .map(|preds| filter_predictions_impl(&preds, location_scores, threshold, rerank))
+        .collect()
+}
+
+/// Filter predictions based on meta model location scores
+///
+/// # Arguments
+/// * `predictions` - Original predictions from audio analysis
+/// * `location_scores` - Location-based species scores from meta model
+/// * `threshold` - Minimum location score threshold
+/// * `rerank` - Whether to rerank by location score (multiply confidence by location score)
+///
+/// # Returns
+/// Filtered predictions, optionally reranked by location score
+fn filter_predictions_impl(
+    predictions: &[Prediction],
+    location_scores: &[LocationScore],
+    threshold: f32,
+    rerank: bool,
+) -> Vec<Prediction> {
+    // Build lookup map from species to location score
+    let location_map: std::collections::HashMap<&str, f32> = location_scores
+        .iter()
+        .map(|score| (score.species.as_str(), score.score))
+        .collect();
+
+    // Filter and optionally rerank predictions
+    let mut filtered: Vec<Prediction> = predictions
+        .iter()
+        .filter_map(|pred| {
+            let location_score = location_map.get(pred.species.as_str()).copied();
+            match location_score {
+                Some(score) if score >= threshold => {
+                    // Species in meta model with score >= threshold: keep and optionally rerank
+                    let confidence = if rerank {
+                        pred.confidence * score
+                    } else {
+                        pred.confidence
+                    };
+                    Some(Prediction {
+                        species: pred.species.clone(),
+                        confidence,
+                        index: pred.index,
+                    })
+                }
+                Some(_) => {
+                    // Species in meta model with score < threshold: filter out
+                    None
+                }
+                None => {
+                    // Species NOT in meta model: keep unchanged
+                    Some(Prediction {
+                        species: pred.species.clone(),
+                        confidence: pred.confidence,
+                        index: pred.index,
+                    })
+                }
+            }
+        })
+        .collect();
+
+    // Re-sort by confidence descending if reranked
+    if rerank {
+        filtered.sort_unstable_by(|a, b| b.confidence.total_cmp(&a.confidence));
+    }
+
+    filtered
 }
 
 /// Internal state for `RangeFilter`
@@ -355,6 +499,83 @@ impl RangeFilter {
         scores.sort_unstable_by(|a, b| b.score.total_cmp(&a.score));
 
         Ok(scores)
+    }
+
+    /// Filter predictions based on location scores from meta model
+    ///
+    /// # Arguments
+    /// * `predictions` - Original predictions from audio analysis
+    /// * `location_scores` - Location-based species scores (from `predict`)
+    /// * `rerank` - Whether to rerank by multiplying confidence by location score
+    ///
+    /// # Returns
+    /// Filtered predictions, optionally reranked by location score
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use birdnet_onnx::{RangeFilter, Prediction};
+    /// # fn example(filter: &RangeFilter, predictions: Vec<Prediction>) -> birdnet_onnx::Result<()> {
+    /// // Get location scores for a specific place and time
+    /// let location_scores = filter.predict(45.0, -122.0, 6, 15)?;
+    ///
+    /// // Filter predictions to only include species likely at this location
+    /// let filtered = filter.filter_predictions(&predictions, &location_scores, false);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn filter_predictions(
+        &self,
+        predictions: &[Prediction],
+        location_scores: &[LocationScore],
+        rerank: bool,
+    ) -> Vec<Prediction> {
+        filter_predictions_impl(predictions, location_scores, self.inner.threshold, rerank)
+    }
+
+    /// Filter multiple prediction sets using location scores.
+    ///
+    /// This is a convenience method for batch processing multiple audio files
+    /// from the same location. Predict location scores once, then apply to
+    /// multiple prediction sets.
+    ///
+    /// # Arguments
+    /// * `predictions_batch` - Vector of prediction vectors to filter
+    /// * `location_scores` - Location scores from `predict()`
+    /// * `rerank` - Whether to rerank each prediction set
+    ///
+    /// # Returns
+    /// Vector of filtered prediction vectors
+    ///
+    /// # Example
+    /// ```ignore
+    /// let location_scores = range_filter.predict(lat, lon, month, day)?;
+    ///
+    /// let mut predictions_batch = Vec::new();
+    /// for segment in audio_segments {
+    ///     let result = classifier.predict(&segment)?;
+    ///     predictions_batch.push(result.predictions);
+    /// }
+    ///
+    /// let filtered_batch = range_filter.filter_batch_predictions(
+    ///     predictions_batch,
+    ///     &location_scores,
+    ///     rerank,
+    /// );
+    /// ```
+    #[must_use]
+    pub fn filter_batch_predictions(
+        &self,
+        predictions_batch: Vec<Vec<crate::types::Prediction>>,
+        location_scores: &[LocationScore],
+        rerank: bool,
+    ) -> Vec<Vec<crate::types::Prediction>> {
+        filter_batch_predictions_impl(
+            predictions_batch,
+            location_scores,
+            self.inner.threshold,
+            rerank,
+        )
     }
 }
 
@@ -476,5 +697,221 @@ mod tests {
         let result = RangeFilter::builder().model_path("/tmp/model.onnx").build();
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::LabelsRequired));
+    }
+
+    #[test]
+    fn test_filter_predictions_above_threshold() {
+        // Setup test data
+        let predictions = vec![
+            Prediction {
+                species: "Species A".to_string(),
+                confidence: 0.8,
+                index: 0,
+            },
+            Prediction {
+                species: "Species B".to_string(),
+                confidence: 0.3,
+                index: 1,
+            },
+            Prediction {
+                species: "Species C".to_string(),
+                confidence: 0.05,
+                index: 2,
+            },
+        ];
+
+        let location_scores = vec![
+            LocationScore {
+                species: "Species A".to_string(),
+                score: 0.9,
+                index: 0,
+            },
+            LocationScore {
+                species: "Species B".to_string(),
+                score: 0.02,
+                index: 1,
+            },
+            LocationScore {
+                species: "Species C".to_string(),
+                score: 0.5,
+                index: 2,
+            },
+        ];
+
+        let threshold = 0.03;
+        let rerank = false;
+
+        // Call filter_predictions_impl (will fail - not implemented yet)
+        let filtered = filter_predictions_impl(&predictions, &location_scores, threshold, rerank);
+
+        // Species B should be filtered out (score 0.02 < threshold 0.03)
+        assert_eq!(filtered.len(), 2);
+        assert_eq!(filtered[0].species, "Species A");
+        assert_eq!(filtered[1].species, "Species C");
+    }
+
+    #[test]
+    fn test_filter_predictions_with_rerank() {
+        // Setup test data with different confidence and location scores
+        let predictions = vec![
+            Prediction {
+                species: "Species A".to_string(),
+                confidence: 0.9, // High confidence
+                index: 0,
+            },
+            Prediction {
+                species: "Species B".to_string(),
+                confidence: 0.8, // Medium-high confidence
+                index: 1,
+            },
+            Prediction {
+                species: "Species C".to_string(),
+                confidence: 0.7, // Medium confidence
+                index: 2,
+            },
+        ];
+
+        let location_scores = vec![
+            LocationScore {
+                species: "Species A".to_string(),
+                score: 0.5, // Medium location score
+                index: 0,
+            },
+            LocationScore {
+                species: "Species B".to_string(),
+                score: 0.9, // High location score
+                index: 1,
+            },
+            LocationScore {
+                species: "Species C".to_string(),
+                score: 0.6, // Medium location score
+                index: 2,
+            },
+        ];
+
+        let threshold = 0.03;
+        let rerank = true;
+
+        let filtered = filter_predictions_impl(&predictions, &location_scores, threshold, rerank);
+
+        // All should pass threshold
+        assert_eq!(filtered.len(), 3);
+
+        // After reranking (confidence * location_score):
+        // Species A: 0.9 * 0.5 = 0.45
+        // Species B: 0.8 * 0.9 = 0.72 (highest)
+        // Species C: 0.7 * 0.6 = 0.42
+        // Should be sorted: B, A, C
+        assert_eq!(filtered[0].species, "Species B");
+        assert_eq!(filtered[1].species, "Species A");
+        assert_eq!(filtered[2].species, "Species C");
+
+        // Verify reranked scores
+        assert!((filtered[0].confidence - 0.72).abs() < 0.001);
+        assert!((filtered[1].confidence - 0.45).abs() < 0.001);
+        assert!((filtered[2].confidence - 0.42).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_filter_predictions_species_not_in_meta_model() {
+        // Setup test data where some predictions are not in meta model
+        let predictions = vec![
+            Prediction {
+                species: "Species A".to_string(),
+                confidence: 0.8,
+                index: 0,
+            },
+            Prediction {
+                species: "Species B".to_string(),
+                confidence: 0.7,
+                index: 1,
+            },
+            Prediction {
+                species: "Species D".to_string(), // Not in meta model
+                confidence: 0.9,
+                index: 3,
+            },
+        ];
+
+        let location_scores = vec![
+            LocationScore {
+                species: "Species A".to_string(),
+                score: 0.9,
+                index: 0,
+            },
+            LocationScore {
+                species: "Species C".to_string(), // Not in predictions
+                score: 0.8,
+                index: 2,
+            },
+        ];
+
+        let threshold = 0.03;
+        let rerank = false;
+
+        let filtered = filter_predictions_impl(&predictions, &location_scores, threshold, rerank);
+
+        // Species A (in meta, score >= threshold): KEEP
+        // Species B (NOT in meta model): KEEP unchanged
+        // Species D (NOT in meta model): KEEP unchanged
+        assert_eq!(filtered.len(), 3);
+        assert_eq!(filtered[0].species, "Species A");
+        assert_eq!(filtered[0].confidence, 0.8);
+        assert_eq!(filtered[1].species, "Species B");
+        assert_eq!(filtered[1].confidence, 0.7);
+        assert_eq!(filtered[2].species, "Species D");
+        assert_eq!(filtered[2].confidence, 0.9);
+    }
+
+    #[test]
+    fn test_builder_from_classifier_labels() {
+        // This test verifies the builder can accept a label reference
+        // We can't test with a real Classifier without a model file,
+        // so we test the builder configuration
+
+        let labels = vec!["Species A".to_string(), "Species B".to_string()];
+        let builder = RangeFilterBuilder::new().from_classifier_labels(&labels);
+
+        // Verify labels were set (we'll need to expose this for testing)
+        assert!(matches!(builder.labels, Some(Labels::InMemory(_))));
+    }
+
+    #[test]
+    fn test_filter_batch_predictions() {
+        use crate::types::Prediction;
+
+        let batch1 = vec![Prediction {
+            species: "Species A".to_string(),
+            confidence: 0.8,
+            index: 0,
+        }];
+        let batch2 = vec![Prediction {
+            species: "Species B".to_string(),
+            confidence: 0.6,
+            index: 1,
+        }];
+
+        let predictions_batch = vec![batch1, batch2];
+
+        let location_scores = vec![
+            LocationScore {
+                species: "Species A".to_string(),
+                score: 0.9,
+                index: 0,
+            },
+            LocationScore {
+                species: "Species B".to_string(),
+                score: 0.05,
+                index: 1,
+            },
+        ];
+
+        let threshold = 0.1;
+        let results =
+            filter_batch_predictions_impl(predictions_batch, &location_scores, threshold, false);
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].len(), 1); // Species A kept
+        assert_eq!(results[1].len(), 0); // Species B filtered
     }
 }

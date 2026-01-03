@@ -153,6 +153,61 @@ for score in scores.iter().take(10) {
 
 The meta model uses BirdNET's 48-week calendar (4 weeks per month).
 
+### Using RangeFilter for Location-Based Filtering
+
+```rust
+use birdnet_onnx::{Classifier, RangeFilter};
+
+// Build classifier
+let classifier = Classifier::builder()
+    .model_path("birdnet.onnx")
+    .labels_path("labels.txt")
+    .build()?;
+
+// Build range filter using classifier labels
+let range_filter = RangeFilter::builder()
+    .model_path("birdnet_data_model.onnx")
+    .from_classifier_labels(classifier.labels())
+    .threshold(0.01)
+    .build()?;
+
+// Get predictions
+let result = classifier.predict(&audio_segment)?;
+
+// Filter by location (Helsinki, June 15th)
+let location_scores = range_filter.predict(60.1695, 24.9354, 6, 15)?;
+let filtered = range_filter.filter_predictions(
+    &result.predictions,
+    &location_scores,
+    false,
+);
+
+for pred in filtered {
+    println!("{}: {:.1}%", pred.species, pred.confidence * 100.0);
+}
+```
+
+**Batch processing multiple files:**
+
+```rust
+// Calculate location scores once
+let location_scores = range_filter.predict(lat, lon, month, day)?;
+
+// Process multiple audio segments from same location
+let mut predictions_batch = Vec::new();
+for segment in audio_segments {
+    let result = classifier.predict(&segment)?;
+    predictions_batch.push(result.predictions);
+}
+
+// Filter all predictions at once
+let filtered_batch = range_filter.filter_batch_predictions(
+    predictions_batch,
+    &location_scores,
+    true, // rerank: multiply confidence by location score
+);
+```
+
 ## Development
 
 Requires [Task](https://taskfile.dev/) runner:
