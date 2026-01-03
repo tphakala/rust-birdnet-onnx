@@ -20,6 +20,41 @@ A Rust library for running inference on BirdNET and Perch ONNX models with CUDA 
 - Batch inference for GPU efficiency
 - CLI tool for WAV file analysis
 
+## Execution Provider Detection
+
+The library provides methods to query which execution providers (hardware backends) are available and which one is actually being used for inference:
+
+```rust
+use birdnet_onnx::{Classifier, available_execution_providers};
+
+// Query all available execution providers
+let providers = available_execution_providers();
+for provider in providers {
+    println!("Available: {} ({})", provider.as_str(), provider.category());
+}
+
+// Build classifier with GPU acceleration
+let classifier = Classifier::builder()
+    .model_path("model.onnx")
+    .labels_path("labels.txt")
+    .with_cuda()  // Request CUDA GPU
+    .build()?;
+
+// Check which provider is actually running inference
+match classifier.execution_provider() {
+    ExecutionProviderInfo::Cuda => println!("Running on CUDA GPU"),
+    ExecutionProviderInfo::Cpu => println!("Running on CPU (CUDA not available)"),
+    _ => println!("Running on other accelerator"),
+}
+```
+
+This is useful for:
+
+- Showing users which device is actually being used
+- Debugging GPU availability issues
+- Implementing smart fallback strategies
+- Providing accurate performance expectations
+
 ## Supported Models
 
 | Model | Sample Rate | Segment | Embeddings |

@@ -11,14 +11,24 @@
 //! ## Example
 //!
 //! ```ignore
-//! use birdnet_onnx::Classifier;
+//! use birdnet_onnx::{Classifier, available_execution_providers};
 //! use ort::execution_providers::CUDAExecutionProvider;
+//!
+//! // Query available execution providers
+//! let providers = available_execution_providers();
+//! println!("Available providers: {:?}", providers);
 //!
 //! let classifier = Classifier::builder()
 //!     .model_path("model.onnx")
 //!     .labels_path("labels.txt")
-//!     .execution_provider(CUDAExecutionProvider::default())
+//!     .with_cuda()  // Request CUDA acceleration
 //!     .build()?;
+//!
+//! // Check which provider is actually being used
+//! println!("Using: {} ({})",
+//!     classifier.execution_provider().as_str(),
+//!     classifier.execution_provider().category()
+//! );
 //!
 //! let result = classifier.predict(&audio_segment)?;
 //! for pred in &result.predictions {
