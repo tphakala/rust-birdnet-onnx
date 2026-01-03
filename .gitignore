@@ -33,3 +33,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Batch debug output directories
+batch_debug_*/
