@@ -8,6 +8,15 @@ use ort::execution_providers::{
     TensorRTExecutionProvider,
 };
 
+/// Helper macro to check provider availability and add to list
+macro_rules! check_provider {
+    ($providers:ident, $provider:ty, $variant:expr) => {
+        if <$provider>::default().is_available().unwrap_or(false) {
+            $providers.push($variant);
+        }
+    };
+}
+
 /// Query all execution providers compiled into ONNX Runtime.
 ///
 /// Returns a vector of execution providers that ONNX Runtime was built with support for.
@@ -24,6 +33,7 @@ use ort::execution_providers::{
 ///     println!("Available: {} ({})", provider.as_str(), provider.category());
 /// }
 /// ```
+
 pub fn available_execution_providers() -> Vec<ExecutionProviderInfo> {
     let mut providers = Vec::new();
 
@@ -32,76 +42,48 @@ pub fn available_execution_providers() -> Vec<ExecutionProviderInfo> {
 
     // Check each provider using is_available()
     // These checks only verify compile-time support, not runtime initialization
-
-    if CUDAExecutionProvider::default()
-        .is_available()
-        .unwrap_or(false)
-    {
-        providers.push(ExecutionProviderInfo::Cuda);
-    }
-
-    if TensorRTExecutionProvider::default()
-        .is_available()
-        .unwrap_or(false)
-    {
-        providers.push(ExecutionProviderInfo::TensorRt);
-    }
-
-    if DirectMLExecutionProvider::default()
-        .is_available()
-        .unwrap_or(false)
-    {
-        providers.push(ExecutionProviderInfo::DirectMl);
-    }
-
-    if CoreMLExecutionProvider::default()
-        .is_available()
-        .unwrap_or(false)
-    {
-        providers.push(ExecutionProviderInfo::CoreMl);
-    }
-
-    if ROCmExecutionProvider::default()
-        .is_available()
-        .unwrap_or(false)
-    {
-        providers.push(ExecutionProviderInfo::Rocm);
-    }
-
-    if OpenVINOExecutionProvider::default()
-        .is_available()
-        .unwrap_or(false)
-    {
-        providers.push(ExecutionProviderInfo::OpenVino);
-    }
-
-    if OneDNNExecutionProvider::default()
-        .is_available()
-        .unwrap_or(false)
-    {
-        providers.push(ExecutionProviderInfo::OneDnn);
-    }
-
-    if QNNExecutionProvider::default()
-        .is_available()
-        .unwrap_or(false)
-    {
-        providers.push(ExecutionProviderInfo::Qnn);
-    }
-
-    if ACLExecutionProvider::default()
-        .is_available()
-        .unwrap_or(false)
-    {
-        providers.push(ExecutionProviderInfo::Acl);
-    }
-
-    if ArmNNExecutionProvider::default()
-        .is_available()
-        .unwrap_or(false)
-    {
-        providers.push(ExecutionProviderInfo::ArmNn);
-    }
+    check_provider!(
+        providers,
+        CUDAExecutionProvider,
+        ExecutionProviderInfo::Cuda
+    );
+    check_provider!(
+        providers,
+        TensorRTExecutionProvider,
+        ExecutionProviderInfo::TensorRt
+    );
+    check_provider!(
+        providers,
+        DirectMLExecutionProvider,
+        ExecutionProviderInfo::DirectMl
+    );
+    check_provider!(
+        providers,
+        CoreMLExecutionProvider,
+        ExecutionProviderInfo::CoreMl
+    );
+    check_provider!(
+        providers,
+        ROCmExecutionProvider,
+        ExecutionProviderInfo::Rocm
+    );
+    check_provider!(
+        providers,
+        OpenVINOExecutionProvider,
+        ExecutionProviderInfo::OpenVino
+    );
+    check_provider!(
+        providers,
+        OneDNNExecutionProvider,
+        ExecutionProviderInfo::OneDnn
+    );
+    check_provider!(providers, QNNExecutionProvider, ExecutionProviderInfo::Qnn);
+    check_provider!(providers, ACLExecutionProvider, ExecutionProviderInfo::Acl);
+    check_provider!(
+        providers,
+        ArmNNExecutionProvider,
+        ExecutionProviderInfo::ArmNn
+    );
 
     providers
 }
