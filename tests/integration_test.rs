@@ -247,7 +247,7 @@ fn test_perch_v2_predict() -> Result<()> {
 }
 
 #[test]
-#[allow(clippy::expect_used, clippy::print_stdout)]
+#[allow(clippy::expect_used, clippy::print_stdout, clippy::float_cmp)]
 fn test_perch_v2_auto_detection() {
     init_runtime().expect("failed to init runtime");
 

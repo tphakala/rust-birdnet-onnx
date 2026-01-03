@@ -51,8 +51,7 @@ impl ModelType {
     pub const fn expected_label_format(&self) -> LabelFormat {
         match self {
             Self::BirdNetV24 => LabelFormat::Text,
-            Self::BirdNetV30 => LabelFormat::Csv,
-            Self::PerchV2 => LabelFormat::Csv,
+            Self::BirdNetV30 | Self::PerchV2 => LabelFormat::Csv,
         }
     }
 }
