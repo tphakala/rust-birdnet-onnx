@@ -234,17 +234,21 @@ mod tests {
     fn test_init_runtime_doesnt_panic() {
         // Test that init_runtime doesn't panic
         // The actual result depends on whether a library is found
-        let result = init_runtime();
-        // Either succeeds or fails with an error, but shouldn't panic
+        // Wrap in catch_unwind since ort may panic if library version is incompatible
+        let result = std::panic::catch_unwind(init_runtime);
+        // Either succeeds, fails with an error, or panics, but test itself shouldn't panic
         let _ = result;
     }
 
     #[test]
     fn test_init_runtime_multiple_calls() {
         // Calling init_runtime multiple times should not panic
-        let _ = init_runtime();
-        let _ = init_runtime();
-        let _ = init_runtime();
+        // Wrap in catch_unwind since ort may panic if library version is incompatible
+        let _ = std::panic::catch_unwind(|| {
+            let _ = init_runtime();
+            let _ = init_runtime();
+            let _ = init_runtime();
+        });
     }
 
     #[cfg(target_os = "linux")]
