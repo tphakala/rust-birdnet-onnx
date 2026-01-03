@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-01-04
+
+### Changed
+
+- **BREAKING (behavioral)**: `with_tensorrt()` now enables performance optimizations by default
+  - Enables FP16 precision, CUDA graphs, engine caching, and timing cache
+  - Expected 4x performance improvement vs previous zero-config behavior
+  - Fixes [#18](https://github.com/tphakala/rust-birdnet-onnx/issues/18)
+  - To disable optimizations, use `TensorRTConfig` to customize settings
+
+### Added
+
+- `TensorRTConfig` for fine-grained TensorRT configuration
+- `ClassifierBuilder::with_tensorrt_config()` for custom TensorRT settings
+
 ## [1.4.0] - 2026-01-03
 
 ### Added
