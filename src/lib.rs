@@ -35,6 +35,7 @@
 mod classifier;
 mod detection;
 mod error;
+mod execution_providers;
 mod labels;
 mod postprocess;
 mod rangefilter;
@@ -45,6 +46,7 @@ mod types;
 
 pub use classifier::{Classifier, ClassifierBuilder};
 pub use error::{Error, Result};
+pub use execution_providers::available_execution_providers;
 pub use rangefilter::{
     RangeFilter, RangeFilterBuilder, calculate_week, validate_coordinates, validate_date,
 };
@@ -53,6 +55,3 @@ pub use types::{
     ExecutionProviderInfo, LabelFormat, LocationScore, ModelConfig, ModelType, Prediction,
     PredictionResult,
 };
-
-// Re-export ort execution providers for convenience
-pub use ort::execution_providers;
