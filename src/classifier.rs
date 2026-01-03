@@ -171,12 +171,8 @@ impl ClassifierBuilder {
     pub fn with_tensorrt(mut self) -> Self {
         use ort::execution_providers::TensorRTExecutionProvider;
 
-        let provider = TensorRTExecutionProvider::default()
-            .with_fp16(true)
-            .with_cuda_graph(true)
-            .with_engine_cache(true)
-            .with_timing_cache(true)
-            .with_builder_optimization_level(3);
+        let config = crate::tensorrt_config::TensorRTConfig::new();
+        let provider = config.apply_to(TensorRTExecutionProvider::default());
 
         self.execution_providers.push(provider.into());
 
