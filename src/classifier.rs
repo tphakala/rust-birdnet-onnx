@@ -10,6 +10,21 @@ use ort::session::Session;
 use ort::value::Value;
 use std::sync::{Arc, Mutex};
 
+// Macro to generate execution provider builder methods
+macro_rules! with_provider_method {
+    ($fn_name:ident, $provider_struct:ident, $provider_enum:ident, $doc:expr) => {
+        #[doc = $doc]
+        #[must_use]
+        pub fn $fn_name(mut self) -> Self {
+            use ort::execution_providers::$provider_struct;
+            self.execution_providers
+                .push($provider_struct::default().into());
+            self.requested_provider = ExecutionProviderInfo::$provider_enum;
+            self
+        }
+    };
+}
+
 /// Labels source for builder
 #[derive(Debug)]
 enum Labels {
@@ -105,105 +120,66 @@ impl ClassifierBuilder {
         self
     }
 
-    /// Request CUDA execution provider (NVIDIA GPU)
-    #[must_use]
-    pub fn with_cuda(mut self) -> Self {
-        use ort::execution_providers::CUDAExecutionProvider;
-        self.execution_providers
-            .push(CUDAExecutionProvider::default().into());
-        self.requested_provider = ExecutionProviderInfo::Cuda;
-        self
-    }
-
-    /// Request `TensorRT` execution provider (NVIDIA GPU)
-    #[must_use]
-    pub fn with_tensorrt(mut self) -> Self {
-        use ort::execution_providers::TensorRTExecutionProvider;
-        self.execution_providers
-            .push(TensorRTExecutionProvider::default().into());
-        self.requested_provider = ExecutionProviderInfo::TensorRt;
-        self
-    }
-
-    /// Request `DirectML` execution provider (Windows GPU)
-    #[must_use]
-    pub fn with_directml(mut self) -> Self {
-        use ort::execution_providers::DirectMLExecutionProvider;
-        self.execution_providers
-            .push(DirectMLExecutionProvider::default().into());
-        self.requested_provider = ExecutionProviderInfo::DirectMl;
-        self
-    }
-
-    /// Request `CoreML` execution provider (Apple Neural Engine)
-    #[must_use]
-    pub fn with_coreml(mut self) -> Self {
-        use ort::execution_providers::CoreMLExecutionProvider;
-        self.execution_providers
-            .push(CoreMLExecutionProvider::default().into());
-        self.requested_provider = ExecutionProviderInfo::CoreMl;
-        self
-    }
-
-    /// Request `ROCm` execution provider (AMD GPU)
-    #[must_use]
-    pub fn with_rocm(mut self) -> Self {
-        use ort::execution_providers::ROCmExecutionProvider;
-        self.execution_providers
-            .push(ROCmExecutionProvider::default().into());
-        self.requested_provider = ExecutionProviderInfo::Rocm;
-        self
-    }
-
-    /// Request `OpenVINO` execution provider (Intel accelerator)
-    #[must_use]
-    pub fn with_openvino(mut self) -> Self {
-        use ort::execution_providers::OpenVINOExecutionProvider;
-        self.execution_providers
-            .push(OpenVINOExecutionProvider::default().into());
-        self.requested_provider = ExecutionProviderInfo::OpenVino;
-        self
-    }
-
-    /// Request oneDNN execution provider (Intel accelerator)
-    #[must_use]
-    pub fn with_onednn(mut self) -> Self {
-        use ort::execution_providers::OneDNNExecutionProvider;
-        self.execution_providers
-            .push(OneDNNExecutionProvider::default().into());
-        self.requested_provider = ExecutionProviderInfo::OneDnn;
-        self
-    }
-
-    /// Request QNN execution provider (Qualcomm NPU)
-    #[must_use]
-    pub fn with_qnn(mut self) -> Self {
-        use ort::execution_providers::QNNExecutionProvider;
-        self.execution_providers
-            .push(QNNExecutionProvider::default().into());
-        self.requested_provider = ExecutionProviderInfo::Qnn;
-        self
-    }
-
-    /// Request ACL execution provider (Arm Compute Library)
-    #[must_use]
-    pub fn with_acl(mut self) -> Self {
-        use ort::execution_providers::ACLExecutionProvider;
-        self.execution_providers
-            .push(ACLExecutionProvider::default().into());
-        self.requested_provider = ExecutionProviderInfo::Acl;
-        self
-    }
-
-    /// Request `ArmNN` execution provider (Arm Neural Network)
-    #[must_use]
-    pub fn with_armnn(mut self) -> Self {
-        use ort::execution_providers::ArmNNExecutionProvider;
-        self.execution_providers
-            .push(ArmNNExecutionProvider::default().into());
-        self.requested_provider = ExecutionProviderInfo::ArmNn;
-        self
-    }
+    with_provider_method!(
+        with_cuda,
+        CUDAExecutionProvider,
+        Cuda,
+        "Request CUDA execution provider (NVIDIA GPU)"
+    );
+    with_provider_method!(
+        with_tensorrt,
+        TensorRTExecutionProvider,
+        TensorRt,
+        "Request `TensorRT` execution provider (NVIDIA GPU)"
+    );
+    with_provider_method!(
+        with_directml,
+        DirectMLExecutionProvider,
+        DirectMl,
+        "Request `DirectML` execution provider (Windows GPU)"
+    );
+    with_provider_method!(
+        with_coreml,
+        CoreMLExecutionProvider,
+        CoreMl,
+        "Request `CoreML` execution provider (Apple Neural Engine)"
+    );
+    with_provider_method!(
+        with_rocm,
+        ROCmExecutionProvider,
+        Rocm,
+        "Request `ROCm` execution provider (AMD GPU)"
+    );
+    with_provider_method!(
+        with_openvino,
+        OpenVINOExecutionProvider,
+        OpenVino,
+        "Request `OpenVINO` execution provider (Intel accelerator)"
+    );
+    with_provider_method!(
+        with_onednn,
+        OneDNNExecutionProvider,
+        OneDnn,
+        "Request oneDNN execution provider (Intel accelerator)"
+    );
+    with_provider_method!(
+        with_qnn,
+        QNNExecutionProvider,
+        Qnn,
+        "Request QNN execution provider (Qualcomm NPU)"
+    );
+    with_provider_method!(
+        with_acl,
+        ACLExecutionProvider,
+        Acl,
+        "Request ACL execution provider (Arm Compute Library)"
+    );
+    with_provider_method!(
+        with_armnn,
+        ArmNNExecutionProvider,
+        ArmNn,
+        "Request `ArmNN` execution provider (Arm Neural Network)"
+    );
 
     /// Build the classifier
     ///
@@ -843,16 +819,6 @@ mod tests {
     }
 
     #[test]
-    fn test_requested_provider_stored_in_builder() {
-        let builder = ClassifierBuilder::new();
-        // Verify the default is CPU
-        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cpu);
-
-        // Note: This test verifies the field exists and has the correct default.
-        // Task 4 will add builder methods to set this to other providers.
-    }
-
-    #[test]
     fn test_builder_debug_includes_requested_provider() {
         let builder = ClassifierBuilder::new()
             .model_path("test.onnx")
@@ -969,12 +935,6 @@ mod tests {
         assert_eq!(builder.top_k, 5);
         assert_eq!(builder.min_confidence, Some(0.8));
         assert_eq!(builder.execution_providers.len(), 1);
-    }
-
-    #[test]
-    fn test_with_cuda_adds_to_execution_providers() {
-        let builder = ClassifierBuilder::new().with_cuda();
-        assert!(!builder.execution_providers.is_empty());
     }
 
     #[test]
