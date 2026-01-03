@@ -374,10 +374,16 @@ impl Classifier {
                 let logits = extract_tensor_data(outputs, 0)?;
                 (None, logits)
             }
-            ModelType::BirdNetV30 | ModelType::PerchV2 => {
-                // Two outputs: embeddings, predictions
+            ModelType::BirdNetV30 => {
+                // Two outputs: embeddings at 0, predictions at 1
                 let embeddings = extract_tensor_data(outputs, 0)?;
                 let logits = extract_tensor_data(outputs, 1)?;
+                (Some(embeddings), logits)
+            }
+            ModelType::PerchV2 => {
+                // Four outputs: embedding at 0, spatial_embedding at 1, spectrogram at 2, predictions at 3
+                let embeddings = extract_tensor_data(outputs, 0)?;
+                let logits = extract_tensor_data(outputs, 3)?;
                 (Some(embeddings), logits)
             }
         };
@@ -432,7 +438,7 @@ impl Classifier {
                     })
                     .collect()
             }
-            ModelType::BirdNetV30 | ModelType::PerchV2 => {
+            ModelType::BirdNetV30 => {
                 let embedding_dim = self.inner.config.embedding_dim.ok_or_else(|| {
                     Error::Inference(
                         "embedding_dim missing for model that requires embeddings".into(),
@@ -440,6 +446,41 @@ impl Classifier {
                 })?;
                 let emb_flat = extract_tensor_data(outputs, 0)?;
                 let logits_flat = extract_tensor_data(outputs, 1)?;
+
+                (0..batch_size)
+                    .map(|i| {
+                        let emb_start = i * embedding_dim;
+                        let emb_end = emb_start + embedding_dim;
+                        let embeddings = emb_flat[emb_start..emb_end].to_vec();
+
+                        let logits_start = i * num_species;
+                        let logits_end = logits_start + num_species;
+                        let logits = &logits_flat[logits_start..logits_end];
+
+                        let predictions = top_k_predictions(
+                            logits,
+                            &self.inner.labels,
+                            self.inner.top_k,
+                            self.inner.min_confidence,
+                        );
+
+                        Ok(PredictionResult {
+                            model_type,
+                            predictions,
+                            embeddings: Some(embeddings),
+                            raw_scores: logits.to_vec(),
+                        })
+                    })
+                    .collect()
+            }
+            ModelType::PerchV2 => {
+                let embedding_dim = self.inner.config.embedding_dim.ok_or_else(|| {
+                    Error::Inference(
+                        "embedding_dim missing for model that requires embeddings".into(),
+                    )
+                })?;
+                let emb_flat = extract_tensor_data(outputs, 0)?;
+                let logits_flat = extract_tensor_data(outputs, 3)?; // predictions at index 3
 
                 (0..batch_size)
                     .map(|i| {
