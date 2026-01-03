@@ -170,6 +170,25 @@ fn test_birdnet_v24_wrong_input_size() -> Result<()> {
     Ok(())
 }
 
+#[test]
+#[ignore = "requires model fixtures"]
+fn test_birdnet_v24_execution_provider() -> Result<()> {
+    if !fixtures_available() {
+        return Ok(());
+    }
+
+    let classifier = Classifier::builder()
+        .model_path(format!("{FIXTURES_DIR}/birdnet_v24.onnx"))
+        .labels_path(format!("{FIXTURES_DIR}/birdnet_v24_labels.txt"))
+        .build()?;
+
+    // Should default to CPU when no provider specified
+    use birdnet_onnx::ExecutionProviderInfo;
+    assert_eq!(classifier.execution_provider(), ExecutionProviderInfo::Cpu);
+
+    Ok(())
+}
+
 // ============================================================================
 // BirdNET v3.0 Tests
 // ============================================================================
