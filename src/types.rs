@@ -123,16 +123,27 @@ pub struct LocationScore {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[allow(dead_code)] // Infrastructure for future use
 pub enum ExecutionProviderInfo {
+    /// CPU execution provider (always available).
     Cpu,
+    /// NVIDIA CUDA execution provider.
     Cuda,
+    /// NVIDIA `TensorRT` execution provider.
     TensorRt,
+    /// `DirectML` execution provider (Windows).
     DirectMl,
+    /// Apple `CoreML` execution provider.
     CoreMl,
+    /// AMD `ROCm` execution provider.
     Rocm,
+    /// Intel `OpenVINO` execution provider.
     OpenVino,
+    /// Intel oneDNN execution provider.
     OneDnn,
+    /// Qualcomm QNN execution provider.
     Qnn,
+    /// Arm Compute Library execution provider.
     Acl,
+    /// Arm NN execution provider.
     ArmNn,
 }
 
