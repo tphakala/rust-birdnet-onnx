@@ -12,12 +12,11 @@
 //!
 //! ```ignore
 //! use birdnet_onnx::Classifier;
-//! use ort::execution_providers::CUDAExecutionProvider;
 //!
 //! let classifier = Classifier::builder()
 //!     .model_path("model.onnx")
 //!     .labels_path("labels.txt")
-//!     .execution_provider(CUDAExecutionProvider::default())
+//!     .with_cuda()
 //!     .build()?;
 //!
 //! let result = classifier.predict(&audio_segment)?;
@@ -46,6 +45,7 @@ mod types;
 
 pub use classifier::{Classifier, ClassifierBuilder};
 pub use error::{Error, Result};
+pub use execution_providers::available_execution_providers;
 pub use rangefilter::{
     RangeFilter, RangeFilterBuilder, calculate_week, validate_coordinates, validate_date,
 };
