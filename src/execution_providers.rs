@@ -24,7 +24,7 @@ use ort::execution_providers::{
 ///
 /// # Example
 ///
-/// ```
+/// ```no_run
 /// use birdnet_onnx::available_execution_providers;
 ///
 /// let providers = available_execution_providers();
@@ -62,8 +62,25 @@ mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
 
+    /// Check if ONNX Runtime is available by checking for the environment variable
+    fn onnx_runtime_available() -> bool {
+        std::env::var("ORT_DYLIB_PATH").is_ok()
+    }
+
+    /// Skip test helper that prints a message when ONNX Runtime is not available
+    macro_rules! skip_if_no_onnx {
+        () => {
+            if !onnx_runtime_available() {
+                eprintln!("Skipping test: ORT_DYLIB_PATH environment variable not set");
+                eprintln!("ONNX Runtime is required for these tests");
+                return;
+            }
+        };
+    }
+
     #[test]
     fn test_cpu_always_available() {
+        skip_if_no_onnx!();
         let providers = available_execution_providers();
         assert!(!providers.is_empty(), "Providers list should not be empty");
         assert_eq!(
@@ -75,6 +92,7 @@ mod tests {
 
     #[test]
     fn test_no_duplicates() {
+        skip_if_no_onnx!();
         let providers = available_execution_providers();
         let mut seen = std::collections::HashSet::new();
         for provider in &providers {
@@ -87,6 +105,7 @@ mod tests {
 
     #[test]
     fn test_function_doesnt_panic() {
+        skip_if_no_onnx!();
         // This test verifies the function completes without panicking
         let providers = available_execution_providers();
         // The actual list depends on compile-time configuration
@@ -95,6 +114,7 @@ mod tests {
 
     #[test]
     fn test_consistent_results() {
+        skip_if_no_onnx!();
         // Calling multiple times should give consistent results
         let result1 = available_execution_providers();
         let result2 = available_execution_providers();
@@ -103,6 +123,7 @@ mod tests {
 
     #[test]
     fn test_cpu_only_in_result_once() {
+        skip_if_no_onnx!();
         let providers = available_execution_providers();
         let cpu_count = providers
             .iter()

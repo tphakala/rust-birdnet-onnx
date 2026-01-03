@@ -153,6 +153,22 @@ mod tests {
     use super::*;
     use std::env;
 
+    /// Check if ONNX Runtime is available by checking for the environment variable
+    fn onnx_runtime_available() -> bool {
+        std::env::var("ORT_DYLIB_PATH").is_ok()
+    }
+
+    /// Skip test helper that prints a message when ONNX Runtime is not available
+    macro_rules! skip_if_no_onnx {
+        () => {
+            if !onnx_runtime_available() {
+                eprintln!("Skipping test: ORT_DYLIB_PATH environment variable not set");
+                eprintln!("ONNX Runtime is required for these tests");
+                return;
+            }
+        };
+    }
+
     #[test]
     fn test_find_ort_library_returns_option() {
         // This test just verifies the function doesn't panic
@@ -232,6 +248,7 @@ mod tests {
 
     #[test]
     fn test_init_runtime_doesnt_panic() {
+        skip_if_no_onnx!();
         // Test that init_runtime doesn't panic
         // The actual result depends on whether a library is found
         let result = init_runtime();
@@ -241,6 +258,7 @@ mod tests {
 
     #[test]
     fn test_init_runtime_multiple_calls() {
+        skip_if_no_onnx!();
         // Calling init_runtime multiple times should not panic
         let _ = init_runtime();
         let _ = init_runtime();
