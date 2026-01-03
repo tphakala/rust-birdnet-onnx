@@ -74,15 +74,15 @@ pub enum ExecutionProviderInfo {
     Cpu,
     /// NVIDIA CUDA GPU acceleration.
     Cuda,
-    /// NVIDIA TensorRT optimized inference.
+    /// NVIDIA `TensorRT` optimized inference.
     TensorRt,
-    /// Windows DirectML (DirectX 12).
+    /// Windows `DirectML` (DirectX 12).
     DirectMl,
-    /// Apple CoreML (macOS/iOS).
+    /// Apple `CoreML` (macOS/iOS).
     CoreMl,
-    /// AMD ROCm GPU acceleration.
+    /// AMD `ROCm` GPU acceleration.
     Rocm,
-    /// Intel OpenVINO.
+    /// Intel `OpenVINO`.
     OpenVino,
     /// Intel oneDNN.
     OneDnn,

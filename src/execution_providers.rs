@@ -37,7 +37,7 @@ macro_rules! check_provider {
 ///     println!("Available: {} ({})", provider.as_str(), provider.category());
 /// }
 /// ```
-
+#[must_use]
 pub fn available_execution_providers() -> Vec<ExecutionProviderInfo> {
     let mut providers = Vec::new();
 
@@ -94,7 +94,7 @@ pub fn available_execution_providers() -> Vec<ExecutionProviderInfo> {
 
 /// Detects execution provider fallback by capturing tracing events.
 #[derive(Clone)]
-pub(crate) struct ExecutionProviderDetector {
+pub struct ExecutionProviderDetector {
     state: Arc<Mutex<DetectorState>>,
 }
 
@@ -129,6 +129,7 @@ impl ExecutionProviderDetector {
     }
 
     /// Get registration error messages.
+    #[allow(dead_code)]
     pub fn registration_errors(&self) -> Vec<String> {
         self.state
             .lock()
@@ -143,6 +144,7 @@ struct DetectorLayer {
 }
 
 impl<S: Subscriber> Layer<S> for DetectorLayer {
+    #[allow(clippy::items_after_statements)]
     fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
         use tracing::field::Visit;
 
@@ -176,19 +178,17 @@ impl<S: Subscriber> Layer<S> for DetectorLayer {
         if metadata.level() == &tracing::Level::WARN
             && message
                 .contains("No execution providers from session options registered successfully")
+            && let Ok(mut state) = self.state.lock()
         {
-            if let Ok(mut state) = self.state.lock() {
-                state.cpu_fallback = true;
-            }
+            state.cpu_fallback = true;
         }
 
         // Capture registration errors
         if metadata.level() == &tracing::Level::ERROR
             && message.contains("An error occurred when attempting to register")
+            && let Ok(mut state) = self.state.lock()
         {
-            if let Ok(mut state) = self.state.lock() {
-                state.registration_errors.push(message);
-            }
+            state.registration_errors.push(message);
         }
     }
 }
