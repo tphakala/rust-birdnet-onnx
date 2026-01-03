@@ -177,7 +177,7 @@ let result = classifier.predict(&audio_segment)?;
 // Filter by location (Helsinki, June 15th)
 let location_scores = range_filter.predict(60.1695, 24.9354, 6, 15)?;
 let filtered = range_filter.filter_predictions(
-    result.predictions,
+    &result.predictions,
     &location_scores,
     false,
 );
@@ -193,10 +193,10 @@ for pred in filtered {
 // Calculate location scores once
 let location_scores = range_filter.predict(lat, lon, month, day)?;
 
-// Process multiple files from same location
+// Process multiple audio segments from same location
 let mut predictions_batch = Vec::new();
-for audio_file in audio_files {
-    let result = classifier.predict_batch(&segments)?;
+for segment in audio_segments {
+    let result = classifier.predict(&segment)?;
     predictions_batch.push(result.predictions);
 }
 

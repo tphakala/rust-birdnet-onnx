@@ -26,7 +26,7 @@
 //!
 //! // Filter predictions
 //! let filtered = range_filter.filter_predictions(
-//!     result.predictions,
+//!     &result.predictions,
 //!     &location_scores,
 //!     false, // don't rerank
 //! );
@@ -38,10 +38,10 @@
 //! // Calculate location scores once
 //! let location_scores = range_filter.predict(lat, lon, month, day)?;
 //!
-//! // Process multiple files
+//! // Process multiple audio segments
 //! let mut predictions_batch = Vec::new();
-//! for audio_file in files {
-//!     let result = classifier.predict(&segments)?;
+//! for segment in audio_segments {
+//!     let result = classifier.predict(&segment)?;
 //!     predictions_batch.push(result.predictions);
 //! }
 //!
@@ -337,10 +337,10 @@ fn filter_predictions_impl(
     rerank: bool,
 ) -> Vec<Prediction> {
     // Build lookup map from species to location score
-    let mut location_map: std::collections::HashMap<&str, f32> = std::collections::HashMap::new();
-    for score in location_scores {
-        location_map.insert(&score.species, score.score);
-    }
+    let location_map: std::collections::HashMap<&str, f32> = location_scores
+        .iter()
+        .map(|score| (score.species.as_str(), score.score))
+        .collect();
 
     // Filter and optionally rerank predictions
     let mut filtered: Vec<Prediction> = predictions
@@ -551,14 +551,14 @@ impl RangeFilter {
     /// ```ignore
     /// let location_scores = range_filter.predict(lat, lon, month, day)?;
     ///
-    /// let mut filtered_results = Vec::new();
-    /// for audio_file in batch {
-    ///     let predictions = classifier.predict(&segments)?;
-    ///     filtered_results.push(predictions);
+    /// let mut predictions_batch = Vec::new();
+    /// for segment in audio_segments {
+    ///     let result = classifier.predict(&segment)?;
+    ///     predictions_batch.push(result.predictions);
     /// }
     ///
     /// let filtered_batch = range_filter.filter_batch_predictions(
-    ///     filtered_results,
+    ///     predictions_batch,
     ///     &location_scores,
     ///     rerank,
     /// );
