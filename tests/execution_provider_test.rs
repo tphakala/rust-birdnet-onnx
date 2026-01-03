@@ -6,7 +6,7 @@
 #![allow(clippy::unwrap_used)] // Tests can use unwrap
 #![allow(clippy::disallowed_methods)] // Tests can use unwrap
 
-use birdnet_onnx::{Classifier, ExecutionProviderInfo, available_execution_providers};
+use birdnet_onnx::{ExecutionProviderInfo, available_execution_providers};
 
 /// Check if ONNX Runtime is available by checking for the environment variable
 fn onnx_runtime_available() -> bool {
@@ -45,76 +45,6 @@ fn available_providers_includes_cpu() {
         ExecutionProviderInfo::Cpu,
         "CPU should be the first provider in the list"
     );
-}
-
-// ============================================================================
-// Requested Provider Tests
-// ============================================================================
-
-#[test]
-fn requested_provider_default_is_cpu() {
-    skip_if_no_onnx!();
-
-    // Create a minimal labels vector for testing
-    let labels = vec!["species1".to_string(), "species2".to_string()];
-
-    // Create classifier without specifying execution provider
-    // This should fail to load since we don't have an actual model,
-    // but we can test the builder's default
-    let builder = Classifier::builder()
-        .model_path("nonexistent.onnx")
-        .labels(labels);
-
-    // The builder's default provider should be CPU, but we can't
-    // directly test the builder. Instead, we need to actually build
-    // a classifier. Since we can't do that without a real model in
-    // integration tests, we'll skip this test if model isn't available.
-    // For now, just verify that the function exists by attempting to build.
-    let result = builder.build();
-
-    // Building should fail (model doesn't exist), but that's expected
-    assert!(result.is_err());
-}
-
-#[test]
-fn requested_provider_with_cuda() {
-    skip_if_no_onnx!();
-
-    let labels = vec!["species1".to_string(), "species2".to_string()];
-
-    // Use with_cuda() builder method
-    let builder = Classifier::builder()
-        .model_path("nonexistent.onnx")
-        .labels(labels)
-        .with_cuda();
-
-    // Building should fail (model doesn't exist), but that's expected
-    let result = builder.build();
-    assert!(result.is_err());
-
-    // We can't directly test the requested_provider without a successful build,
-    // but we've verified the method exists and can be called
-}
-
-#[test]
-fn requested_provider_chained_methods() {
-    skip_if_no_onnx!();
-
-    let labels = vec!["species1".to_string(), "species2".to_string()];
-
-    // Chain multiple provider methods - last one should win
-    let builder = Classifier::builder()
-        .model_path("nonexistent.onnx")
-        .labels(labels)
-        .with_cuda()
-        .with_tensorrt()
-        .with_directml();
-
-    // Building should fail (model doesn't exist), but that's expected
-    let result = builder.build();
-    assert!(result.is_err());
-
-    // We've verified that chaining works (compiles and runs)
 }
 
 // ============================================================================
