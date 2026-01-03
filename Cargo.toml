@@ -30,6 +30,14 @@ tracing = "0.1.44"
 [dev-dependencies]
 tempfile = "3"
 
+[[example]]
+name = "execution_provider_query"
+path = "examples/execution_provider_query.rs"
+
+[[example]]
+name = "classifier_provider_detection"
+path = "examples/classifier_provider_detection.rs"
+
 # ============================================================================
 # Strict Linting Configuration
 # ============================================================================
