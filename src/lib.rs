@@ -40,6 +40,7 @@
 #![deny(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 #![allow(clippy::module_name_repetitions)]
+#![allow(clippy::multiple_crate_versions)] // ort and tracing-subscriber use different smallvec versions
 
 mod classifier;
 mod detection;
