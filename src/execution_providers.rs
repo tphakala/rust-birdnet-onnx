@@ -7,6 +7,10 @@ use ort::execution_providers::{
     OpenVINOExecutionProvider, QNNExecutionProvider, ROCmExecutionProvider,
     TensorRTExecutionProvider,
 };
+use std::sync::{Arc, Mutex};
+use tracing::Subscriber;
+use tracing_subscriber::Layer;
+use tracing_subscriber::layer::{Context, SubscriberExt};
 
 /// Helper macro to check provider availability and add to list
 macro_rules! check_provider {
@@ -88,6 +92,107 @@ pub fn available_execution_providers() -> Vec<ExecutionProviderInfo> {
     providers
 }
 
+/// Detects execution provider fallback by capturing tracing events.
+#[derive(Clone)]
+pub(crate) struct ExecutionProviderDetector {
+    state: Arc<Mutex<DetectorState>>,
+}
+
+#[derive(Default)]
+struct DetectorState {
+    cpu_fallback: bool,
+    registration_errors: Vec<String>,
+}
+
+impl ExecutionProviderDetector {
+    /// Create a new detector and install it as a tracing subscriber.
+    ///
+    /// Returns the detector and a guard that will uninstall the subscriber when dropped.
+    pub fn new() -> (Self, tracing::subscriber::DefaultGuard) {
+        let detector = Self {
+            state: Arc::new(Mutex::new(DetectorState::default())),
+        };
+
+        let layer = DetectorLayer {
+            state: Arc::clone(&detector.state),
+        };
+
+        let subscriber = tracing_subscriber::registry().with(layer);
+        let guard = tracing::subscriber::set_default(subscriber);
+
+        (detector, guard)
+    }
+
+    /// Check if CPU fallback was detected.
+    pub fn cpu_fallback_detected(&self) -> bool {
+        self.state.lock().map(|s| s.cpu_fallback).unwrap_or(false)
+    }
+
+    /// Get registration error messages.
+    pub fn registration_errors(&self) -> Vec<String> {
+        self.state
+            .lock()
+            .map(|s| s.registration_errors.clone())
+            .unwrap_or_default()
+    }
+}
+
+/// Tracing layer that captures execution provider events.
+struct DetectorLayer {
+    state: Arc<Mutex<DetectorState>>,
+}
+
+impl<S: Subscriber> Layer<S> for DetectorLayer {
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
+        use tracing::field::Visit;
+
+        // Check if this is an ort execution provider event
+        let metadata = event.metadata();
+        if metadata.target() != "ort::execution_providers" {
+            return;
+        }
+
+        // Extract the message field
+        struct MessageVisitor(String);
+        impl Visit for MessageVisitor {
+            fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+                if field.name() == "message" {
+                    self.0 = value.to_string();
+                }
+            }
+
+            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                if field.name() == "message" {
+                    self.0 = format!("{value:?}");
+                }
+            }
+        }
+
+        let mut visitor = MessageVisitor(String::new());
+        event.record(&mut visitor);
+        let message = visitor.0;
+
+        // Detect CPU fallback warning
+        if metadata.level() == &tracing::Level::WARN
+            && message
+                .contains("No execution providers from session options registered successfully")
+        {
+            if let Ok(mut state) = self.state.lock() {
+                state.cpu_fallback = true;
+            }
+        }
+
+        // Capture registration errors
+        if metadata.level() == &tracing::Level::ERROR
+            && message.contains("An error occurred when attempting to register")
+        {
+            if let Ok(mut state) = self.state.lock() {
+                state.registration_errors.push(message);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
@@ -120,5 +225,18 @@ mod tests {
             unique_count,
             "Should not have duplicate providers"
         );
+    }
+
+    #[test]
+    fn test_detect_cpu_fallback_from_tracing() {
+        let (detector, _guard) = ExecutionProviderDetector::new();
+
+        // Simulate the warning log that ort emits
+        tracing::warn!(
+            target: "ort::execution_providers",
+            "No execution providers from session options registered successfully; may fall back to CPU."
+        );
+
+        assert!(detector.cpu_fallback_detected());
     }
 }
