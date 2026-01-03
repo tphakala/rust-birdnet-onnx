@@ -12,7 +12,6 @@
 //!
 //! ```ignore
 //! use birdnet_onnx::{Classifier, available_execution_providers};
-//! use ort::execution_providers::CUDAExecutionProvider;
 //!
 //! // Query available execution providers
 //! let providers = available_execution_providers();

@@ -25,7 +25,7 @@ A Rust library for running inference on BirdNET and Perch ONNX models with CUDA 
 The library provides methods to query which execution providers (hardware backends) are available and which one is actually being used for inference:
 
 ```rust
-use birdnet_onnx::{Classifier, available_execution_providers};
+use birdnet_onnx::{Classifier, ExecutionProviderInfo, available_execution_providers};
 
 // Query all available execution providers
 let providers = available_execution_providers();
@@ -103,7 +103,8 @@ fn main() -> Result<()> {
 ### With CUDA GPU
 
 ```rust
-use birdnet_onnx::{Classifier, execution_providers::CUDAExecutionProvider};
+use birdnet_onnx::Classifier;
+use ort::execution_providers::CUDAExecutionProvider;
 
 let classifier = Classifier::builder()
     .model_path("model.onnx")
