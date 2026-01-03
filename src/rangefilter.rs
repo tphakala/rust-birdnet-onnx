@@ -251,6 +251,22 @@ fn extract_last_dim(shape: &[i64]) -> Result<usize> {
     })
 }
 
+/// Filter multiple prediction sets with the same location scores.
+///
+/// This is a helper for batch processing - runs filtering on each
+/// prediction set using the same location scores.
+fn filter_batch_predictions_impl(
+    predictions_batch: Vec<Vec<crate::types::Prediction>>,
+    location_scores: &[LocationScore],
+    threshold: f32,
+    rerank: bool,
+) -> Vec<Vec<crate::types::Prediction>> {
+    predictions_batch
+        .into_iter()
+        .map(|preds| filter_predictions_impl(&preds, location_scores, threshold, rerank))
+        .collect()
+}
+
 /// Filter predictions based on meta model location scores
 ///
 /// # Arguments
@@ -462,6 +478,51 @@ impl RangeFilter {
         rerank: bool,
     ) -> Vec<Prediction> {
         filter_predictions_impl(predictions, location_scores, self.inner.threshold, rerank)
+    }
+
+    /// Filter multiple prediction sets using location scores.
+    ///
+    /// This is a convenience method for batch processing multiple audio files
+    /// from the same location. Predict location scores once, then apply to
+    /// multiple prediction sets.
+    ///
+    /// # Arguments
+    /// * `predictions_batch` - Vector of prediction vectors to filter
+    /// * `location_scores` - Location scores from `predict()`
+    /// * `rerank` - Whether to rerank each prediction set
+    ///
+    /// # Returns
+    /// Vector of filtered prediction vectors
+    ///
+    /// # Example
+    /// ```ignore
+    /// let location_scores = range_filter.predict(lat, lon, month, day)?;
+    ///
+    /// let mut filtered_results = Vec::new();
+    /// for audio_file in batch {
+    ///     let predictions = classifier.predict(&segments)?;
+    ///     filtered_results.push(predictions);
+    /// }
+    ///
+    /// let filtered_batch = range_filter.filter_batch_predictions(
+    ///     filtered_results,
+    ///     &location_scores,
+    ///     rerank,
+    /// );
+    /// ```
+    #[must_use]
+    pub fn filter_batch_predictions(
+        &self,
+        predictions_batch: Vec<Vec<crate::types::Prediction>>,
+        location_scores: &[LocationScore],
+        rerank: bool,
+    ) -> Vec<Vec<crate::types::Prediction>> {
+        filter_batch_predictions_impl(
+            predictions_batch,
+            location_scores,
+            self.inner.threshold,
+            rerank,
+        )
     }
 }
 
@@ -760,5 +821,44 @@ mod tests {
 
         // Verify labels were set (we'll need to expose this for testing)
         assert!(matches!(builder.labels, Some(Labels::InMemory(_))));
+    }
+
+    #[test]
+    fn test_filter_batch_predictions() {
+        use crate::types::Prediction;
+
+        let batch1 = vec![Prediction {
+            species: "Species A".to_string(),
+            confidence: 0.8,
+            index: 0,
+        }];
+        let batch2 = vec![Prediction {
+            species: "Species B".to_string(),
+            confidence: 0.6,
+            index: 1,
+        }];
+
+        let predictions_batch = vec![batch1, batch2];
+
+        let location_scores = vec![
+            LocationScore {
+                species: "Species A".to_string(),
+                score: 0.9,
+                index: 0,
+            },
+            LocationScore {
+                species: "Species B".to_string(),
+                score: 0.05,
+                index: 1,
+            },
+        ];
+
+        let threshold = 0.1;
+        let results =
+            filter_batch_predictions_impl(predictions_batch, &location_scores, threshold, false);
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].len(), 1); // Species A kept
+        assert_eq!(results[1].len(), 0); // Species B filtered
     }
 }
