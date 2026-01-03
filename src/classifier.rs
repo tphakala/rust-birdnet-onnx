@@ -2,9 +2,10 @@
 
 use crate::detection::detect_model_type;
 use crate::error::{Error, Result};
+use crate::execution_providers::ExecutionProviderDetector;
 use crate::labels::load_labels_from_file;
 use crate::postprocess::top_k_predictions;
-use crate::types::{ModelConfig, ModelType, PredictionResult};
+use crate::types::{ExecutionProviderInfo, ModelConfig, ModelType, PredictionResult};
 use ndarray::Array2;
 use ort::session::Session;
 use ort::value::Value;
@@ -24,6 +25,7 @@ pub struct ClassifierBuilder {
     labels: Option<Labels>,
     model_type_override: Option<ModelType>,
     execution_providers: Vec<ort::execution_providers::ExecutionProviderDispatch>,
+    requested_provider_types: Vec<ExecutionProviderInfo>,
     top_k: usize,
     min_confidence: Option<f32>,
 }
@@ -43,6 +45,7 @@ impl ClassifierBuilder {
             labels: None,
             model_type_override: None,
             execution_providers: Vec::new(),
+            requested_provider_types: Vec::new(),
             top_k: 10,
             min_confidence: None,
         }
@@ -89,6 +92,50 @@ impl ClassifierBuilder {
         self
     }
 
+    /// Add CUDA execution provider (NVIDIA GPU).
+    #[must_use]
+    pub fn with_cuda(mut self) -> Self {
+        use ort::execution_providers::CUDAExecutionProvider;
+        self.execution_providers
+            .push(CUDAExecutionProvider::default().into());
+        self.requested_provider_types
+            .push(ExecutionProviderInfo::Cuda);
+        self
+    }
+
+    /// Add `TensorRT` execution provider (NVIDIA GPU).
+    #[must_use]
+    pub fn with_tensorrt(mut self) -> Self {
+        use ort::execution_providers::TensorRTExecutionProvider;
+        self.execution_providers
+            .push(TensorRTExecutionProvider::default().into());
+        self.requested_provider_types
+            .push(ExecutionProviderInfo::TensorRt);
+        self
+    }
+
+    /// Add `DirectML` execution provider (Windows GPU).
+    #[must_use]
+    pub fn with_directml(mut self) -> Self {
+        use ort::execution_providers::DirectMLExecutionProvider;
+        self.execution_providers
+            .push(DirectMLExecutionProvider::default().into());
+        self.requested_provider_types
+            .push(ExecutionProviderInfo::DirectMl);
+        self
+    }
+
+    /// Add `CoreML` execution provider (Apple Neural Engine).
+    #[must_use]
+    pub fn with_coreml(mut self) -> Self {
+        use ort::execution_providers::CoreMLExecutionProvider;
+        self.execution_providers
+            .push(CoreMLExecutionProvider::default().into());
+        self.requested_provider_types
+            .push(ExecutionProviderInfo::CoreMl);
+        self
+    }
+
     /// Set the number of top predictions to return (default: 10)
     #[must_use]
     pub const fn top_k(mut self, k: usize) -> Self {
@@ -118,6 +165,9 @@ impl ClassifierBuilder {
         let model_path = self.model_path.ok_or(Error::ModelPathRequired)?;
         let labels_source = self.labels.ok_or(Error::LabelsRequired)?;
 
+        // Create detector before building session
+        let (detector, guard) = ExecutionProviderDetector::new();
+
         // Build session with execution providers
         let mut session_builder = Session::builder().map_err(Error::ModelLoad)?;
 
@@ -130,6 +180,21 @@ impl ClassifierBuilder {
         let session = session_builder
             .commit_from_file(&model_path)
             .map_err(Error::ModelLoad)?;
+
+        // Drop guard to stop capturing tracing events
+        drop(guard);
+
+        // Determine actual execution provider
+        let execution_provider = if detector.cpu_fallback_detected() {
+            // CPU fallback was detected
+            ExecutionProviderInfo::Cpu
+        } else if self.requested_provider_types.is_empty() {
+            // No provider requested, using default CPU
+            ExecutionProviderInfo::Cpu
+        } else {
+            // Using first requested provider (assumption: it initialized successfully)
+            self.requested_provider_types[0]
+        };
 
         // Extract input/output shapes for model detection
         let input_shape = extract_input_shape(&session)?;
@@ -159,6 +224,7 @@ impl ClassifierBuilder {
                 labels,
                 top_k: self.top_k,
                 min_confidence: self.min_confidence,
+                execution_provider,
             }),
         })
     }
@@ -207,6 +273,7 @@ struct ClassifierInner {
     labels: Vec<String>,
     top_k: usize,
     min_confidence: Option<f32>,
+    execution_provider: ExecutionProviderInfo,
 }
 
 /// Thread-safe classifier for bird species detection
@@ -224,6 +291,7 @@ impl std::fmt::Debug for Classifier {
             .field("labels_count", &self.inner.labels.len())
             .field("top_k", &self.inner.top_k)
             .field("min_confidence", &self.inner.min_confidence)
+            .field("execution_provider", &self.inner.execution_provider)
             .finish_non_exhaustive()
     }
 }
@@ -245,6 +313,33 @@ impl Classifier {
     #[must_use]
     pub fn labels(&self) -> &[String] {
         &self.inner.labels
+    }
+
+    /// Get the execution provider actually being used for inference.
+    ///
+    /// Returns which hardware backend (CPU, GPU, etc.) is running inference.
+    /// This reflects the actual provider after fallback, not what was requested.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use birdnet_onnx::Classifier;
+    /// use ort::execution_providers::CUDAExecutionProvider;
+    ///
+    /// let classifier = Classifier::builder()
+    ///     .model_path("model.onnx")
+    ///     .labels_path("labels.txt")
+    ///     .execution_provider(CUDAExecutionProvider::default())
+    ///     .build()?;
+    ///
+    /// println!("Using: {} ({})",
+    ///     classifier.execution_provider().as_str(),
+    ///     classifier.execution_provider().category()
+    /// );
+    /// ```
+    #[must_use]
+    pub fn execution_provider(&self) -> ExecutionProviderInfo {
+        self.inner.execution_provider
     }
 
     /// Run inference on a single audio segment
@@ -583,6 +678,7 @@ mod tests {
         assert_eq!(builder.min_confidence, None);
         assert_eq!(builder.model_type_override, None);
         assert!(builder.execution_providers.is_empty());
+        assert!(builder.requested_provider_types.is_empty());
     }
 
     #[test]
@@ -646,6 +742,58 @@ mod tests {
 
         assert_eq!(builder1.top_k, builder2.top_k);
         assert_eq!(builder1.min_confidence, builder2.min_confidence);
+    }
+
+    #[test]
+    fn test_builder_typed_provider_methods() {
+        // Test with_cuda
+        let builder = ClassifierBuilder::new().with_cuda();
+        assert_eq!(builder.execution_providers.len(), 1);
+        assert_eq!(builder.requested_provider_types.len(), 1);
+        assert_eq!(
+            builder.requested_provider_types[0],
+            ExecutionProviderInfo::Cuda
+        );
+
+        // Test with_tensorrt
+        let builder = ClassifierBuilder::new().with_tensorrt();
+        assert_eq!(builder.execution_providers.len(), 1);
+        assert_eq!(builder.requested_provider_types.len(), 1);
+        assert_eq!(
+            builder.requested_provider_types[0],
+            ExecutionProviderInfo::TensorRt
+        );
+
+        // Test with_directml
+        let builder = ClassifierBuilder::new().with_directml();
+        assert_eq!(builder.execution_providers.len(), 1);
+        assert_eq!(builder.requested_provider_types.len(), 1);
+        assert_eq!(
+            builder.requested_provider_types[0],
+            ExecutionProviderInfo::DirectMl
+        );
+
+        // Test with_coreml
+        let builder = ClassifierBuilder::new().with_coreml();
+        assert_eq!(builder.execution_providers.len(), 1);
+        assert_eq!(builder.requested_provider_types.len(), 1);
+        assert_eq!(
+            builder.requested_provider_types[0],
+            ExecutionProviderInfo::CoreMl
+        );
+
+        // Test chaining multiple providers
+        let builder = ClassifierBuilder::new().with_cuda().with_tensorrt();
+        assert_eq!(builder.execution_providers.len(), 2);
+        assert_eq!(builder.requested_provider_types.len(), 2);
+        assert_eq!(
+            builder.requested_provider_types[0],
+            ExecutionProviderInfo::Cuda
+        );
+        assert_eq!(
+            builder.requested_provider_types[1],
+            ExecutionProviderInfo::TensorRt
+        );
     }
 
     // Input validation tests (these test predict/predict_batch validation logic)
