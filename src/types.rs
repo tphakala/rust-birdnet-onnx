@@ -51,8 +51,7 @@ impl ModelType {
     pub const fn expected_label_format(&self) -> LabelFormat {
         match self {
             Self::BirdNetV24 => LabelFormat::Text,
-            Self::BirdNetV30 => LabelFormat::Csv,
-            Self::PerchV2 => LabelFormat::Json,
+            Self::BirdNetV30 | Self::PerchV2 => LabelFormat::Csv,
         }
     }
 }
@@ -154,7 +153,7 @@ mod tests {
         assert_eq!(model.segment_duration(), 5.0);
         assert_eq!(model.sample_count(), 160_000);
         assert!(model.has_embeddings());
-        assert_eq!(model.expected_label_format(), LabelFormat::Json);
+        assert_eq!(model.expected_label_format(), LabelFormat::Csv);
     }
 
     #[test]

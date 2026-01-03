@@ -88,6 +88,8 @@ fn looks_like_header(value: &str) -> bool {
         || lower == "class"
         || lower == "common_name"
         || lower == "scientific_name"
+        || lower.starts_with("inat") // Perch v2 dataset identifier (e.g., "inat2024_fsd50k")
+        || lower.ends_with("_fsd50k") // Perch v2 dataset identifier
 }
 
 /// Parse JSON format: supports multiple structures.
@@ -162,6 +164,20 @@ mod tests {
     #[test]
     fn test_parse_csv_labels_species_header() {
         let content = "species\nAmerican Robin\nNorthern Cardinal";
+        let labels = parse_csv_labels(content).unwrap();
+        assert_eq!(labels, vec!["American Robin", "Northern Cardinal"]);
+    }
+
+    #[test]
+    fn test_parse_csv_labels_perch_v2_inat_header() {
+        let content = "inat2024_fsd50k\nAmerican Robin\nNorthern Cardinal";
+        let labels = parse_csv_labels(content).unwrap();
+        assert_eq!(labels, vec!["American Robin", "Northern Cardinal"]);
+    }
+
+    #[test]
+    fn test_parse_csv_labels_perch_v2_fsd50k_header() {
+        let content = "dataset_fsd50k\nAmerican Robin\nNorthern Cardinal";
         let labels = parse_csv_labels(content).unwrap();
         assert_eq!(labels, vec!["American Robin", "Northern Cardinal"]);
     }

@@ -40,14 +40,28 @@ pub fn detect_model_type(
             })
         }
 
-        // BirdNET v3.0 / Perch v2: 160,000 samples, 2 outputs (embeddings, predictions)
+        // BirdNET v3.0: 160,000 samples, 2 outputs (embeddings, predictions)
         (160_000, 2) => {
             let embedding_dim = extract_last_dim(&output_shapes[0])?;
             let num_species = extract_last_dim(&output_shapes[1])?;
 
-            // Default to BirdNET v3.0, user can override for Perch
             Ok(ModelConfig {
                 model_type: ModelType::BirdNetV30,
+                sample_rate: 32_000,
+                segment_duration: 5.0,
+                sample_count: 160_000,
+                num_species,
+                embedding_dim: Some(embedding_dim),
+            })
+        }
+
+        // Perch v2: 160,000 samples, 4 outputs (embedding, spatial_embedding, spectrogram, predictions)
+        (160_000, 4) => {
+            let embedding_dim = extract_last_dim(&output_shapes[0])?;
+            let num_species = extract_last_dim(&output_shapes[3])?; // predictions at index 3
+
+            Ok(ModelConfig {
+                model_type: ModelType::PerchV2,
                 sample_rate: 32_000,
                 segment_duration: 5.0,
                 sample_count: 160_000,
@@ -59,7 +73,7 @@ pub fn detect_model_type(
         _ => Err(Error::ModelDetection {
             reason: format!(
                 "unsupported model: {sample_count} samples, {num_outputs} outputs \
-                 (expected 144000/1 or 160000/2)"
+                 (expected 144000/1, 160000/2, or 160000/4)"
             ),
         }),
     }
@@ -90,11 +104,11 @@ fn build_config_with_override(
             }
             (None, extract_last_dim(&output_shapes[0])?)
         }
-        ModelType::BirdNetV30 | ModelType::PerchV2 => {
+        ModelType::BirdNetV30 => {
             if output_shapes.len() != 2 {
                 return Err(Error::ModelDetection {
                     reason: format!(
-                        "{model_type:?} expects 2 outputs, got {}",
+                        "BirdNET v3.0 expects 2 outputs, got {}",
                         output_shapes.len()
                     ),
                 });
@@ -102,6 +116,17 @@ fn build_config_with_override(
             (
                 Some(extract_last_dim(&output_shapes[0])?),
                 extract_last_dim(&output_shapes[1])?,
+            )
+        }
+        ModelType::PerchV2 => {
+            if output_shapes.len() != 4 {
+                return Err(Error::ModelDetection {
+                    reason: format!("Perch v2 expects 4 outputs, got {}", output_shapes.len()),
+                });
+            }
+            (
+                Some(extract_last_dim(&output_shapes[0])?),
+                extract_last_dim(&output_shapes[3])?, // predictions at index 3
             )
         }
     };
@@ -183,9 +208,36 @@ mod tests {
     }
 
     #[test]
+    fn test_detect_perch_v2() {
+        let input_shape = vec![1, 160_000];
+        // Perch v2 has 4 outputs: embedding, spatial_embedding, spectrogram, predictions
+        let output_shapes = vec![
+            vec![1, 1536],        // embedding
+            vec![1, 16, 4, 1536], // spatial_embedding
+            vec![1, 500, 128],    // spectrogram
+            vec![1, 14795],       // predictions
+        ];
+
+        let config = detect_model_type(&input_shape, &output_shapes, None).unwrap();
+
+        assert_eq!(config.model_type, ModelType::PerchV2);
+        assert_eq!(config.sample_rate, 32_000);
+        assert_eq!(config.segment_duration, 5.0);
+        assert_eq!(config.sample_count, 160_000);
+        assert_eq!(config.num_species, 14795);
+        assert_eq!(config.embedding_dim, Some(1536));
+    }
+
+    #[test]
     fn test_detect_with_perch_override() {
         let input_shape = vec![1, 160_000];
-        let output_shapes = vec![vec![1, 512], vec![1, 500]];
+        // Perch v2 has 4 outputs: embedding, spatial_embedding, spectrogram, predictions
+        let output_shapes = vec![
+            vec![1, 512],        // embedding
+            vec![1, 16, 4, 512], // spatial_embedding
+            vec![1, 500, 128],   // spectrogram
+            vec![1, 500],        // predictions
+        ];
 
         let config =
             detect_model_type(&input_shape, &output_shapes, Some(ModelType::PerchV2)).unwrap();

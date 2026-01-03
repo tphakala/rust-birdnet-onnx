@@ -20,6 +20,32 @@ fn fixtures_available() -> bool {
     Path::new(FIXTURES_DIR).join("birdnet_v24.onnx").exists()
 }
 
+/// Get Perch v2 test assets from environment variables
+fn get_perch_v2_test_assets() -> Option<(String, String)> {
+    let Ok(model_path) = std::env::var("PERCH_V2_MODEL") else {
+        eprintln!("Skipping test: PERCH_V2_MODEL environment variable not set");
+        eprintln!("To run this test locally: export PERCH_V2_MODEL=/path/to/perch-v2.onnx");
+        return None;
+    };
+
+    let Ok(labels_path) = std::env::var("PERCH_V2_LABELS") else {
+        eprintln!("Skipping test: PERCH_V2_LABELS environment variable not set");
+        eprintln!("To run this test locally: export PERCH_V2_LABELS=/path/to/perch-v2.csv");
+        return None;
+    };
+
+    if !Path::new(&model_path).exists() {
+        eprintln!("Skipping test: model not found at {model_path}");
+        return None;
+    }
+    if !Path::new(&labels_path).exists() {
+        eprintln!("Skipping test: labels not found at {labels_path}");
+        return None;
+    }
+
+    Some((model_path, labels_path))
+}
+
 /// Create silent audio segment
 fn silent_segment(model_type: ModelType) -> Vec<f32> {
     vec![0.0f32; model_type.sample_count()]
@@ -211,7 +237,7 @@ fn test_perch_v2_load_with_override() -> Result<()> {
 
     let classifier = Classifier::builder()
         .model_path(&model_path)
-        .labels_path(format!("{FIXTURES_DIR}/perch_v2_labels.json"))
+        .labels_path(format!("{FIXTURES_DIR}/perch_v2_labels.csv"))
         .model_type(ModelType::PerchV2) // Override detection
         .build()?;
 
@@ -233,7 +259,7 @@ fn test_perch_v2_predict() -> Result<()> {
 
     let classifier = Classifier::builder()
         .model_path(&model_path)
-        .labels_path(format!("{FIXTURES_DIR}/perch_v2_labels.json"))
+        .labels_path(format!("{FIXTURES_DIR}/perch_v2_labels.csv"))
         .model_type(ModelType::PerchV2)
         .build()?;
 
@@ -244,6 +270,118 @@ fn test_perch_v2_predict() -> Result<()> {
     assert!(result.embeddings.is_some());
 
     Ok(())
+}
+
+#[test]
+#[allow(clippy::expect_used, clippy::print_stdout, clippy::float_cmp)]
+fn test_perch_v2_auto_detection() {
+    init_runtime().expect("failed to init runtime");
+
+    let Some((model_path, labels_path)) = get_perch_v2_test_assets() else {
+        return;
+    };
+
+    // Load classifier WITHOUT override - should auto-detect Perch v2
+    let classifier = Classifier::builder()
+        .model_path(&model_path)
+        .labels_path(&labels_path)
+        .build()
+        .expect("failed to build classifier");
+
+    let config = classifier.config();
+    assert_eq!(
+        config.model_type,
+        ModelType::PerchV2,
+        "should auto-detect Perch v2"
+    );
+    assert_eq!(config.sample_rate, 32_000);
+    assert_eq!(config.segment_duration, 5.0);
+    assert_eq!(config.sample_count, 160_000);
+    assert!(config.embedding_dim.is_some());
+
+    println!("✓ Perch v2 auto-detection successful");
+    println!("  Model type: {:?}", config.model_type);
+    println!("  Species count: {}", config.num_species);
+    println!("  Embedding dim: {:?}", config.embedding_dim);
+}
+
+#[test]
+#[allow(clippy::expect_used, clippy::print_stdout)]
+fn test_perch_v2_predict_real_model() {
+    init_runtime().expect("failed to init runtime");
+
+    let Some((model_path, labels_path)) = get_perch_v2_test_assets() else {
+        return;
+    };
+
+    let classifier = Classifier::builder()
+        .model_path(&model_path)
+        .labels_path(&labels_path)
+        .top_k(10)
+        .min_confidence(0.1)
+        .build()
+        .expect("failed to build classifier");
+
+    // Test with silent audio
+    let segment = silent_segment(ModelType::PerchV2);
+    let result = classifier.predict(&segment).expect("prediction failed");
+
+    assert_eq!(result.model_type, ModelType::PerchV2);
+    assert!(result.embeddings.is_some(), "should have embeddings");
+    assert!(result.predictions.len() <= 10, "should respect top_k");
+    assert!(!result.raw_scores.is_empty(), "should have raw scores");
+
+    // Verify predictions are sorted by confidence
+    for window in result.predictions.windows(2) {
+        assert!(window[0].confidence >= window[1].confidence);
+    }
+
+    // Verify all predictions meet min_confidence
+    for pred in &result.predictions {
+        assert!(pred.confidence >= 0.1);
+    }
+
+    println!("✓ Perch v2 prediction successful");
+    println!("  Predictions: {}", result.predictions.len());
+    if let Some(embeddings) = &result.embeddings {
+        println!("  Embedding dim: {}", embeddings.len());
+    }
+}
+
+#[test]
+#[allow(clippy::expect_used)]
+fn test_perch_v2_batch_predict() {
+    init_runtime().expect("failed to init runtime");
+
+    let Some((model_path, labels_path)) = get_perch_v2_test_assets() else {
+        return;
+    };
+
+    let classifier = Classifier::builder()
+        .model_path(&model_path)
+        .labels_path(&labels_path)
+        .build()
+        .expect("failed to build classifier");
+
+    // Create multiple segments
+    let seg1 = silent_segment(ModelType::PerchV2);
+    let seg2 = sine_wave_segment(ModelType::PerchV2, 440.0);
+    let seg3 = sine_wave_segment(ModelType::PerchV2, 1000.0);
+
+    let segments: Vec<&[f32]> = vec![&seg1, &seg2, &seg3];
+    let results = classifier
+        .predict_batch(&segments)
+        .expect("batch prediction failed");
+
+    assert_eq!(results.len(), 3, "should return 3 results");
+
+    for result in &results {
+        assert_eq!(result.model_type, ModelType::PerchV2);
+        assert!(
+            result.embeddings.is_some(),
+            "all results should have embeddings"
+        );
+    }
 }
 
 // ============================================================================
