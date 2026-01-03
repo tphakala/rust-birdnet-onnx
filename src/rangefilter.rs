@@ -1,4 +1,57 @@
 //! Range filter for location and date-based species filtering
+//!
+//! # Usage Examples
+//!
+//! ## Basic Filtering
+//!
+//! ```ignore
+//! use birdnet_onnx::{Classifier, RangeFilter};
+//!
+//! let classifier = Classifier::builder()
+//!     .model_path("birdnet.onnx")
+//!     .labels_path("labels.txt")
+//!     .build()?;
+//!
+//! let range_filter = RangeFilter::builder()
+//!     .model_path("meta_model.onnx")
+//!     .from_classifier_labels(classifier.labels())
+//!     .threshold(0.01)
+//!     .build()?;
+//!
+//! // Get predictions
+//! let result = classifier.predict(&audio_segment)?;
+//!
+//! // Get location scores
+//! let location_scores = range_filter.predict(60.17, 24.94, 6, 15)?;
+//!
+//! // Filter predictions
+//! let filtered = range_filter.filter_predictions(
+//!     result.predictions,
+//!     &location_scores,
+//!     false, // don't rerank
+//! );
+//! ```
+//!
+//! ## Batch Processing
+//!
+//! ```ignore
+//! // Calculate location scores once
+//! let location_scores = range_filter.predict(lat, lon, month, day)?;
+//!
+//! // Process multiple files
+//! let mut predictions_batch = Vec::new();
+//! for audio_file in files {
+//!     let result = classifier.predict(&segments)?;
+//!     predictions_batch.push(result.predictions);
+//! }
+//!
+//! // Filter all at once
+//! let filtered_batch = range_filter.filter_batch_predictions(
+//!     predictions_batch,
+//!     &location_scores,
+//!     true, // rerank by location score
+//! );
+//! ```
 
 use crate::error::{Error, Result};
 use crate::labels::parse_labels;
