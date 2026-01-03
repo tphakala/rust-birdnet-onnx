@@ -1,6 +1,8 @@
 //! Example: Detect active execution provider in classifier
 //!
-//! Run with: cargo run --example classifier_provider_detection
+//! Run with: `cargo run --example classifier_provider_detection`
+
+#![allow(clippy::print_stdout)]
 
 use birdnet_onnx::Classifier;
 

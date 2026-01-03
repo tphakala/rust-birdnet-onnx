@@ -1,6 +1,10 @@
 //! Tests for execution provider detection
 
 #![allow(clippy::unwrap_used)]
+#![allow(clippy::disallowed_methods)]
+#![allow(clippy::print_stderr)]
+#![allow(clippy::print_stdout)]
+#![allow(clippy::uninlined_format_args)]
 
 use birdnet_onnx::{Classifier, ExecutionProviderInfo, available_execution_providers};
 use std::path::Path;

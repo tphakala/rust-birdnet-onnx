@@ -1,6 +1,8 @@
 //! Example: Query available execution providers
 //!
-//! Run with: cargo run --example execution_provider_query
+//! Run with: `cargo run --example execution_provider_query`
+
+#![allow(clippy::print_stdout)]
 
 use birdnet_onnx::{ExecutionProviderInfo, available_execution_providers};
 
