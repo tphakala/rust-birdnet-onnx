@@ -67,6 +67,71 @@ pub enum LabelFormat {
     Json,
 }
 
+/// Information about execution providers (hardware backends).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ExecutionProviderInfo {
+    /// CPU execution (always available, fallback).
+    Cpu,
+    /// NVIDIA CUDA GPU acceleration.
+    Cuda,
+    /// NVIDIA TensorRT optimized inference.
+    TensorRt,
+    /// Windows DirectML (DirectX 12).
+    DirectMl,
+    /// Apple CoreML (macOS/iOS).
+    CoreMl,
+    /// AMD ROCm GPU acceleration.
+    Rocm,
+    /// Intel OpenVINO.
+    OpenVino,
+    /// Intel oneDNN.
+    OneDnn,
+    /// Qualcomm QNN (NPU).
+    Qnn,
+    /// ARM Compute Library.
+    Acl,
+    /// ARM NN.
+    ArmNn,
+}
+
+impl ExecutionProviderInfo {
+    /// Get the execution provider identifier string.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Cpu => "CPU",
+            Self::Cuda => "CUDA",
+            Self::TensorRt => "TensorRT",
+            Self::DirectMl => "DirectML",
+            Self::CoreMl => "CoreML",
+            Self::Rocm => "ROCm",
+            Self::OpenVino => "OpenVINO",
+            Self::OneDnn => "oneDNN",
+            Self::Qnn => "QNN",
+            Self::Acl => "ACL",
+            Self::ArmNn => "ArmNN",
+        }
+    }
+
+    /// Get the category of this execution provider.
+    #[must_use]
+    pub const fn category(&self) -> &'static str {
+        match self {
+            Self::Cpu => "CPU",
+            Self::Cuda | Self::TensorRt | Self::Rocm | Self::DirectMl => "GPU",
+            Self::CoreMl => "Neural Engine",
+            Self::Qnn => "NPU",
+            Self::OpenVino | Self::OneDnn | Self::Acl | Self::ArmNn => "Accelerator",
+        }
+    }
+}
+
+impl std::fmt::Display for ExecutionProviderInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 /// Model configuration derived from detected model type.
 #[derive(Debug, Clone)]
 pub struct ModelConfig {
@@ -179,5 +244,23 @@ mod tests {
         assert_eq!(score.species, "Turdus merula_Common Blackbird");
         assert_eq!(score.score, 0.85);
         assert_eq!(score.index, 42);
+    }
+
+    #[test]
+    fn test_execution_provider_info_display() {
+        assert_eq!(ExecutionProviderInfo::Cpu.as_str(), "CPU");
+        assert_eq!(ExecutionProviderInfo::Cuda.as_str(), "CUDA");
+        assert_eq!(ExecutionProviderInfo::TensorRt.as_str(), "TensorRT");
+        assert_eq!(ExecutionProviderInfo::DirectMl.as_str(), "DirectML");
+        assert_eq!(ExecutionProviderInfo::CoreMl.as_str(), "CoreML");
+    }
+
+    #[test]
+    fn test_execution_provider_info_category() {
+        assert_eq!(ExecutionProviderInfo::Cpu.category(), "CPU");
+        assert_eq!(ExecutionProviderInfo::Cuda.category(), "GPU");
+        assert_eq!(ExecutionProviderInfo::TensorRt.category(), "GPU");
+        assert_eq!(ExecutionProviderInfo::DirectMl.category(), "GPU");
+        assert_eq!(ExecutionProviderInfo::CoreMl.category(), "Neural Engine");
     }
 }
