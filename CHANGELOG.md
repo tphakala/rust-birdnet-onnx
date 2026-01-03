@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-01-03
+
 ### Added
+
 - `ExecutionProviderInfo` enum for execution provider types
 - `available_execution_providers()` to query compile-time availability
 - `Classifier::requested_provider()` to query requested execution provider
@@ -24,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Reason**: Prevents naming conflict with the new typed builder methods and clarifies it's the raw ort module
 
 ### Notes
+
 - `requested_provider()` returns the *requested* provider, not the active one
 - Use `ORT_LOG_LEVEL=Verbose` to verify actual runtime provider usage
 
