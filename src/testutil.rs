@@ -7,7 +7,26 @@
 
 use crate::types::{ModelConfig, ModelType, Prediction, PredictionResult};
 
+/// Check if ONNX Runtime is available by checking for the environment variable
+#[must_use]
+pub fn onnx_runtime_available() -> bool {
+    std::env::var("ORT_DYLIB_PATH").is_ok()
+}
+
+/// Macro to skip tests that require ONNX Runtime when library is unavailable
+#[macro_export]
+macro_rules! skip_if_no_onnx {
+    () => {
+        if !$crate::testutil::onnx_runtime_available() {
+            eprintln!("Skipping test: ORT_DYLIB_PATH environment variable not set");
+            eprintln!("ONNX Runtime is required for these tests");
+            return;
+        }
+    };
+}
+
 /// Create a mock `ModelConfig` for testing
+#[must_use]
 pub fn mock_config(model_type: ModelType) -> ModelConfig {
     ModelConfig {
         model_type,
@@ -28,11 +47,13 @@ pub fn mock_config(model_type: ModelType) -> ModelConfig {
 }
 
 /// Create mock audio segment with correct size for model type
+#[must_use]
 pub fn mock_audio_segment(model_type: ModelType) -> Vec<f32> {
     vec![0.0f32; model_type.sample_count()]
 }
 
 /// Create mock audio segment with sine wave
+#[must_use]
 pub fn mock_sine_wave(model_type: ModelType, frequency: f32) -> Vec<f32> {
     let sample_rate = model_type.sample_rate() as f32;
     let sample_count = model_type.sample_count();
@@ -46,11 +67,13 @@ pub fn mock_sine_wave(model_type: ModelType, frequency: f32) -> Vec<f32> {
 }
 
 /// Create mock labels
+#[must_use]
 pub fn mock_labels(count: usize) -> Vec<String> {
     (0..count).map(|i| format!("Species_{i}")).collect()
 }
 
 /// Create a mock `PredictionResult` for testing downstream code
+#[must_use]
 pub fn mock_prediction_result(model_type: ModelType) -> PredictionResult {
     let embeddings = match model_type {
         ModelType::BirdNetV24 => None,
@@ -83,6 +106,7 @@ pub fn mock_prediction_result(model_type: ModelType) -> PredictionResult {
 }
 
 /// Generate random logits for testing top-K selection
+#[must_use]
 pub fn random_logits(count: usize, seed: u64) -> Vec<f32> {
     // Simple LCG for reproducible "random" values
     let mut state = seed;
@@ -97,6 +121,7 @@ pub fn random_logits(count: usize, seed: u64) -> Vec<f32> {
 }
 
 /// Create mock logits with known top predictions
+#[must_use]
 pub fn mock_logits_with_top_k(total_count: usize, top_indices: &[(usize, f32)]) -> Vec<f32> {
     let mut logits = vec![-5.0; total_count];
     for &(idx, score) in top_indices {
@@ -108,6 +133,7 @@ pub fn mock_logits_with_top_k(total_count: usize, top_indices: &[(usize, f32)]) 
 }
 
 /// Create mock embeddings for testing
+#[must_use]
 pub fn mock_embeddings(dim: usize, seed: u64) -> Vec<f32> {
     // Simple deterministic embeddings
     let mut state = seed;

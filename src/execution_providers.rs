@@ -61,22 +61,7 @@ pub fn available_execution_providers() -> Vec<ExecutionProviderInfo> {
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
-
-    /// Check if ONNX Runtime is available by checking for the environment variable
-    fn onnx_runtime_available() -> bool {
-        std::env::var("ORT_DYLIB_PATH").is_ok()
-    }
-
-    /// Skip test helper that prints a message when ONNX Runtime is not available
-    macro_rules! skip_if_no_onnx {
-        () => {
-            if !onnx_runtime_available() {
-                eprintln!("Skipping test: ORT_DYLIB_PATH environment variable not set");
-                eprintln!("ONNX Runtime is required for these tests");
-                return;
-            }
-        };
-    }
+    use crate::skip_if_no_onnx;
 
     #[test]
     fn test_cpu_always_available() {

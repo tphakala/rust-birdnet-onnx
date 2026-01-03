@@ -334,6 +334,10 @@ impl Classifier {
     /// not necessarily the provider that is *actually active*. If the requested
     /// provider is unavailable, ONNX Runtime will silently fall back to CPU.
     ///
+    /// This value is only set by the typed `with_<provider>()` builder methods
+    /// (e.g., `with_cuda()`, `with_tensorrt()`). The generic `execution_provider()`
+    /// method does not affect the value returned here.
+    ///
     /// To verify the actual provider being used, enable ONNX Runtime verbose
     /// logging via environment variable: `ORT_LOG_LEVEL=Verbose`
     #[must_use]

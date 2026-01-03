@@ -40,7 +40,7 @@ mod postprocess;
 mod rangefilter;
 mod runtime;
 #[cfg(test)]
-mod testutil;
+pub mod testutil;
 mod types;
 
 pub use classifier::{Classifier, ClassifierBuilder};

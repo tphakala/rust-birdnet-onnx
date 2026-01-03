@@ -151,23 +151,8 @@ mod tests {
     #![allow(clippy::disallowed_methods)]
     #![allow(unsafe_code)]
     use super::*;
+    use crate::skip_if_no_onnx;
     use std::env;
-
-    /// Check if ONNX Runtime is available by checking for the environment variable
-    fn onnx_runtime_available() -> bool {
-        std::env::var("ORT_DYLIB_PATH").is_ok()
-    }
-
-    /// Skip test helper that prints a message when ONNX Runtime is not available
-    macro_rules! skip_if_no_onnx {
-        () => {
-            if !onnx_runtime_available() {
-                eprintln!("Skipping test: ORT_DYLIB_PATH environment variable not set");
-                eprintln!("ONNX Runtime is required for these tests");
-                return;
-            }
-        };
-    }
 
     #[test]
     fn test_find_ort_library_returns_option() {
