@@ -202,10 +202,21 @@ mod tests {
     use ort::execution_providers::CPUExecutionProvider;
 
     /// Check if ONNX Runtime is available for testing.
+    /// Returns false in CI environments where ONNX Runtime may not be installed.
     fn ort_available() -> bool {
-        // Try to check if CPU provider is available
-        // This will fail if ONNX Runtime can't initialize
-        std::panic::catch_unwind(|| CPUExecutionProvider::default().is_available()).is_ok()
+        // Skip if ORT_DYLIB_PATH is not set (indicates ONNX Runtime not configured)
+        if std::env::var("ORT_DYLIB_PATH").is_err() {
+            // In CI, ONNX Runtime is usually not installed
+            return false;
+        }
+
+        // Even with ORT_DYLIB_PATH set, try to check if provider works
+        std::panic::catch_unwind(|| {
+            CPUExecutionProvider::default()
+                .is_available()
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)
     }
 
     #[test]
