@@ -151,6 +151,7 @@ mod tests {
     #![allow(clippy::disallowed_methods)]
     #![allow(unsafe_code)]
     use super::*;
+    use crate::skip_if_no_onnx;
     use std::env;
 
     #[test]
@@ -232,6 +233,7 @@ mod tests {
 
     #[test]
     fn test_init_runtime_doesnt_panic() {
+        skip_if_no_onnx!();
         // Test that init_runtime doesn't panic
         // The actual result depends on whether a library is found
         let result = init_runtime();
@@ -241,6 +243,7 @@ mod tests {
 
     #[test]
     fn test_init_runtime_multiple_calls() {
+        skip_if_no_onnx!();
         // Calling init_runtime multiple times should not panic
         let _ = init_runtime();
         let _ = init_runtime();

@@ -4,11 +4,32 @@ use crate::detection::detect_model_type;
 use crate::error::{Error, Result};
 use crate::labels::load_labels_from_file;
 use crate::postprocess::top_k_predictions;
-use crate::types::{ModelConfig, ModelType, PredictionResult};
+use crate::types::{ExecutionProviderInfo, ModelConfig, ModelType, PredictionResult};
 use ndarray::Array2;
 use ort::session::Session;
 use ort::value::Value;
 use std::sync::{Arc, Mutex};
+
+// Macro to generate execution provider builder methods
+macro_rules! with_provider_method {
+    ($fn_name:ident, $provider_struct:ident, $provider_enum:ident, $doc:expr) => {
+        #[doc = $doc]
+        #[must_use]
+        pub fn $fn_name(mut self) -> Self {
+            use ort::execution_providers::$provider_struct;
+            self.execution_providers
+                .push($provider_struct::default().into());
+            // Only set requested_provider if it's still the default (CPU).
+            // This aligns with ONNX Runtime's behavior: it tries providers
+            // in the order they were added, so the first non-CPU provider
+            // is the most relevant one to track.
+            if self.requested_provider == ExecutionProviderInfo::Cpu {
+                self.requested_provider = ExecutionProviderInfo::$provider_enum;
+            }
+            self
+        }
+    };
+}
 
 /// Labels source for builder
 #[derive(Debug)]
@@ -24,6 +45,7 @@ pub struct ClassifierBuilder {
     labels: Option<Labels>,
     model_type_override: Option<ModelType>,
     execution_providers: Vec<ort::execution_providers::ExecutionProviderDispatch>,
+    requested_provider: ExecutionProviderInfo,
     top_k: usize,
     min_confidence: Option<f32>,
 }
@@ -43,6 +65,7 @@ impl ClassifierBuilder {
             labels: None,
             model_type_override: None,
             execution_providers: Vec::new(),
+            requested_provider: ExecutionProviderInfo::Cpu,
             top_k: 10,
             min_confidence: None,
         }
@@ -69,7 +92,7 @@ impl ClassifierBuilder {
         self
     }
 
-    /// Override auto-detected model type (useful for Perch v2)
+    /// Override auto-detected model type (useful for `Perch` v2)
     #[must_use]
     pub const fn model_type(mut self, model_type: ModelType) -> Self {
         self.model_type_override = Some(model_type);
@@ -102,6 +125,67 @@ impl ClassifierBuilder {
         self.min_confidence = Some(threshold);
         self
     }
+
+    with_provider_method!(
+        with_cuda,
+        CUDAExecutionProvider,
+        Cuda,
+        "Request CUDA execution provider (NVIDIA GPU)"
+    );
+    with_provider_method!(
+        with_tensorrt,
+        TensorRTExecutionProvider,
+        TensorRt,
+        "Request `TensorRT` execution provider (NVIDIA GPU)"
+    );
+    with_provider_method!(
+        with_directml,
+        DirectMLExecutionProvider,
+        DirectMl,
+        "Request `DirectML` execution provider (Windows GPU)"
+    );
+    with_provider_method!(
+        with_coreml,
+        CoreMLExecutionProvider,
+        CoreMl,
+        "Request `CoreML` execution provider (Apple Neural Engine)"
+    );
+    with_provider_method!(
+        with_rocm,
+        ROCmExecutionProvider,
+        Rocm,
+        "Request `ROCm` execution provider (AMD GPU)"
+    );
+    with_provider_method!(
+        with_openvino,
+        OpenVINOExecutionProvider,
+        OpenVino,
+        "Request `OpenVINO` execution provider (Intel accelerator)"
+    );
+    with_provider_method!(
+        with_onednn,
+        OneDNNExecutionProvider,
+        OneDnn,
+        "Request oneDNN execution provider (Intel accelerator)"
+    );
+    with_provider_method!(
+        with_qnn,
+        QNNExecutionProvider,
+        Qnn,
+        "Request QNN execution provider (Qualcomm NPU)"
+    );
+    with_provider_method!(
+        with_acl,
+        ACLExecutionProvider,
+        Acl,
+        "Request ACL execution provider (Arm Compute Library)"
+    );
+    with_provider_method!(
+        with_armnn,
+        ArmNNExecutionProvider,
+        ArmNn,
+        "Request `ArmNN` execution provider (Arm Neural Network)"
+    );
 
     /// Build the classifier
     ///
@@ -157,6 +241,7 @@ impl ClassifierBuilder {
                 session: Mutex::new(session),
                 config,
                 labels,
+                requested_provider: self.requested_provider,
                 top_k: self.top_k,
                 min_confidence: self.min_confidence,
             }),
@@ -205,6 +290,7 @@ struct ClassifierInner {
     session: Mutex<Session>,
     config: ModelConfig,
     labels: Vec<String>,
+    requested_provider: ExecutionProviderInfo,
     top_k: usize,
     min_confidence: Option<f32>,
 }
@@ -222,6 +308,7 @@ impl std::fmt::Debug for Classifier {
         f.debug_struct("Classifier")
             .field("config", &self.inner.config)
             .field("labels_count", &self.inner.labels.len())
+            .field("requested_provider", &self.inner.requested_provider)
             .field("top_k", &self.inner.top_k)
             .field("min_confidence", &self.inner.min_confidence)
             .finish_non_exhaustive()
@@ -245,6 +332,23 @@ impl Classifier {
     #[must_use]
     pub fn labels(&self) -> &[String] {
         &self.inner.labels
+    }
+
+    /// Returns the execution provider that was requested for this classifier.
+    ///
+    /// **Note:** This returns the provider that was *requested* during build,
+    /// not necessarily the provider that is *actually active*. If the requested
+    /// provider is unavailable, ONNX Runtime will silently fall back to CPU.
+    ///
+    /// This value is only set by the typed `with_<provider>()` builder methods
+    /// (e.g., `with_cuda()`, `with_tensorrt()`). The generic `execution_provider()`
+    /// method does not affect the value returned here.
+    ///
+    /// To verify the actual provider being used, enable ONNX Runtime verbose
+    /// logging via environment variable: `ORT_LOG_LEVEL=Verbose`
+    #[must_use]
+    pub fn requested_provider(&self) -> ExecutionProviderInfo {
+        self.inner.requested_provider
     }
 
     /// Run inference on a single audio segment
@@ -583,6 +687,7 @@ mod tests {
         assert_eq!(builder.min_confidence, None);
         assert_eq!(builder.model_type_override, None);
         assert!(builder.execution_providers.is_empty());
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cpu); // Default to CPU
     }
 
     #[test]
@@ -713,5 +818,153 @@ mod tests {
         let labels_mem = Labels::InMemory(vec!["test".to_string()]);
         let debug_str = format!("{labels_mem:?}");
         assert!(debug_str.contains("InMemory"));
+    }
+
+    // Execution provider tests
+
+    #[test]
+    fn test_requested_provider_defaults_to_cpu() {
+        let builder = ClassifierBuilder::new();
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cpu);
+    }
+
+    #[test]
+    fn test_builder_debug_includes_requested_provider() {
+        let builder = ClassifierBuilder::new()
+            .model_path("test.onnx")
+            .labels(vec!["species1".to_string()]);
+
+        let debug_str = format!("{builder:?}");
+        assert!(debug_str.contains("requested_provider"));
+        assert!(debug_str.contains("Cpu"));
+    }
+
+    // Typed builder method tests
+
+    #[test]
+    fn test_with_cuda_sets_requested_provider() {
+        let builder = ClassifierBuilder::new().with_cuda();
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cuda);
+        assert_eq!(builder.execution_providers.len(), 1);
+    }
+
+    #[test]
+    fn test_with_tensorrt_sets_requested_provider() {
+        let builder = ClassifierBuilder::new().with_tensorrt();
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::TensorRt);
+        assert_eq!(builder.execution_providers.len(), 1);
+    }
+
+    #[test]
+    fn test_with_directml_sets_requested_provider() {
+        let builder = ClassifierBuilder::new().with_directml();
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::DirectMl);
+        assert_eq!(builder.execution_providers.len(), 1);
+    }
+
+    #[test]
+    fn test_with_coreml_sets_requested_provider() {
+        let builder = ClassifierBuilder::new().with_coreml();
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::CoreMl);
+        assert_eq!(builder.execution_providers.len(), 1);
+    }
+
+    #[test]
+    fn test_with_rocm_sets_requested_provider() {
+        let builder = ClassifierBuilder::new().with_rocm();
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Rocm);
+        assert_eq!(builder.execution_providers.len(), 1);
+    }
+
+    #[test]
+    fn test_with_openvino_sets_requested_provider() {
+        let builder = ClassifierBuilder::new().with_openvino();
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::OpenVino);
+        assert_eq!(builder.execution_providers.len(), 1);
+    }
+
+    #[test]
+    fn test_with_onednn_sets_requested_provider() {
+        let builder = ClassifierBuilder::new().with_onednn();
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::OneDnn);
+        assert_eq!(builder.execution_providers.len(), 1);
+    }
+
+    #[test]
+    fn test_with_qnn_sets_requested_provider() {
+        let builder = ClassifierBuilder::new().with_qnn();
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Qnn);
+        assert_eq!(builder.execution_providers.len(), 1);
+    }
+
+    #[test]
+    fn test_with_acl_sets_requested_provider() {
+        let builder = ClassifierBuilder::new().with_acl();
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Acl);
+        assert_eq!(builder.execution_providers.len(), 1);
+    }
+
+    #[test]
+    fn test_with_armnn_sets_requested_provider() {
+        let builder = ClassifierBuilder::new().with_armnn();
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::ArmNn);
+        assert_eq!(builder.execution_providers.len(), 1);
+    }
+
+    #[test]
+    fn test_chaining_multiple_providers_first_wins() {
+        let builder = ClassifierBuilder::new().with_cuda().with_tensorrt();
+        // First non-CPU provider wins (aligns with ort's provider priority)
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cuda);
+        // Both providers added to the vec
+        assert_eq!(builder.execution_providers.len(), 2);
+    }
+
+    #[test]
+    fn test_chaining_three_providers_first_wins() {
+        let builder = ClassifierBuilder::new()
+            .with_cuda()
+            .with_tensorrt()
+            .with_directml();
+        // First non-CPU provider wins (aligns with ort's provider priority)
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cuda);
+        // All three providers added
+        assert_eq!(builder.execution_providers.len(), 3);
+    }
+
+    #[test]
+    fn test_provider_methods_can_chain_with_other_builders() {
+        let builder = ClassifierBuilder::new()
+            .model_path("model.onnx")
+            .labels_path("labels.txt")
+            .with_cuda()
+            .top_k(5)
+            .min_confidence(0.8);
+
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cuda);
+        assert_eq!(builder.top_k, 5);
+        assert_eq!(builder.min_confidence, Some(0.8));
+        assert_eq!(builder.execution_providers.len(), 1);
+    }
+
+    #[test]
+    fn test_provider_methods_return_self_for_chaining() {
+        // Verify each method returns Self and can be chained
+        let builder = ClassifierBuilder::new()
+            .with_cuda()
+            .with_tensorrt()
+            .with_directml()
+            .with_coreml()
+            .with_rocm()
+            .with_openvino()
+            .with_onednn()
+            .with_qnn()
+            .with_acl()
+            .with_armnn();
+
+        // First non-CPU provider wins (aligns with ort's provider priority)
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cuda);
+        // All 10 providers added
+        assert_eq!(builder.execution_providers.len(), 10);
     }
 }

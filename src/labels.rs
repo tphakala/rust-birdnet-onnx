@@ -88,8 +88,8 @@ fn looks_like_header(value: &str) -> bool {
         || lower == "class"
         || lower == "common_name"
         || lower == "scientific_name"
-        || lower.starts_with("inat") // Perch v2 dataset identifier (e.g., "inat2024_fsd50k")
-        || lower.ends_with("_fsd50k") // Perch v2 dataset identifier
+        || lower.starts_with("inat") // `Perch` v2 dataset identifier (e.g., "inat2024_fsd50k")
+        || lower.ends_with("_fsd50k") // `Perch` v2 dataset identifier
 }
 
 /// Parse JSON format: supports multiple structures.

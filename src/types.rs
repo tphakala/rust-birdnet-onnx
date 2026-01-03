@@ -5,7 +5,7 @@ pub enum ModelType {
     BirdNetV24,
     /// `BirdNET` v3.0 - 32kHz, 5s segments, 1024-dim embeddings.
     BirdNetV30,
-    /// Google Perch v2 - 32kHz, 5s segments, variable embeddings.
+    /// Google `Perch` v2 - 32kHz, 5s segments, variable embeddings.
     PerchV2,
 }
 
@@ -119,6 +119,71 @@ pub struct LocationScore {
     pub index: usize,
 }
 
+/// Information about execution providers (hardware backends).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ExecutionProviderInfo {
+    /// CPU execution provider (always available).
+    Cpu,
+    /// NVIDIA CUDA execution provider.
+    Cuda,
+    /// NVIDIA `TensorRT` execution provider.
+    TensorRt,
+    /// `DirectML` execution provider (Windows).
+    DirectMl,
+    /// Apple `CoreML` execution provider.
+    CoreMl,
+    /// AMD `ROCm` execution provider.
+    Rocm,
+    /// Intel `OpenVINO` execution provider.
+    OpenVino,
+    /// Intel oneDNN execution provider.
+    OneDnn,
+    /// Qualcomm QNN execution provider.
+    Qnn,
+    /// Arm Compute Library execution provider.
+    Acl,
+    /// Arm NN execution provider.
+    ArmNn,
+}
+
+impl ExecutionProviderInfo {
+    /// Returns the execution provider name as a string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Cpu => "CPU",
+            Self::Cuda => "CUDA",
+            Self::TensorRt => "TensorRT",
+            Self::DirectMl => "DirectML",
+            Self::CoreMl => "CoreML",
+            Self::Rocm => "ROCm",
+            Self::OpenVino => "OpenVINO",
+            Self::OneDnn => "oneDNN",
+            Self::Qnn => "QNN",
+            Self::Acl => "ACL",
+            Self::ArmNn => "ArmNN",
+        }
+    }
+
+    /// Returns the hardware category for this execution provider.
+    #[must_use]
+    pub const fn category(self) -> &'static str {
+        match self {
+            Self::Cpu => "CPU",
+            Self::Cuda | Self::TensorRt | Self::Rocm | Self::DirectMl => "GPU",
+            Self::CoreMl => "Neural Engine",
+            Self::Qnn => "NPU",
+            Self::OpenVino | Self::OneDnn | Self::Acl | Self::ArmNn => "Accelerator",
+        }
+    }
+}
+
+impl std::fmt::Display for ExecutionProviderInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
@@ -179,5 +244,51 @@ mod tests {
         assert_eq!(score.species, "Turdus merula_Common Blackbird");
         assert_eq!(score.score, 0.85);
         assert_eq!(score.index, 42);
+    }
+
+    #[test]
+    fn test_execution_provider_display() {
+        assert_eq!(ExecutionProviderInfo::Cpu.to_string(), "CPU");
+        assert_eq!(ExecutionProviderInfo::Cuda.to_string(), "CUDA");
+        assert_eq!(ExecutionProviderInfo::TensorRt.to_string(), "TensorRT");
+        assert_eq!(ExecutionProviderInfo::DirectMl.to_string(), "DirectML");
+        assert_eq!(ExecutionProviderInfo::CoreMl.to_string(), "CoreML");
+        assert_eq!(ExecutionProviderInfo::Rocm.to_string(), "ROCm");
+        assert_eq!(ExecutionProviderInfo::OpenVino.to_string(), "OpenVINO");
+        assert_eq!(ExecutionProviderInfo::OneDnn.to_string(), "oneDNN");
+        assert_eq!(ExecutionProviderInfo::Qnn.to_string(), "QNN");
+        assert_eq!(ExecutionProviderInfo::Acl.to_string(), "ACL");
+        assert_eq!(ExecutionProviderInfo::ArmNn.to_string(), "ArmNN");
+    }
+
+    #[test]
+    fn test_execution_provider_category_cpu() {
+        assert_eq!(ExecutionProviderInfo::Cpu.category(), "CPU");
+    }
+
+    #[test]
+    fn test_execution_provider_category_gpu() {
+        assert_eq!(ExecutionProviderInfo::Cuda.category(), "GPU");
+        assert_eq!(ExecutionProviderInfo::TensorRt.category(), "GPU");
+        assert_eq!(ExecutionProviderInfo::Rocm.category(), "GPU");
+        assert_eq!(ExecutionProviderInfo::DirectMl.category(), "GPU");
+    }
+
+    #[test]
+    fn test_execution_provider_category_neural_engine() {
+        assert_eq!(ExecutionProviderInfo::CoreMl.category(), "Neural Engine");
+    }
+
+    #[test]
+    fn test_execution_provider_category_npu() {
+        assert_eq!(ExecutionProviderInfo::Qnn.category(), "NPU");
+    }
+
+    #[test]
+    fn test_execution_provider_category_accelerator() {
+        assert_eq!(ExecutionProviderInfo::OpenVino.category(), "Accelerator");
+        assert_eq!(ExecutionProviderInfo::OneDnn.category(), "Accelerator");
+        assert_eq!(ExecutionProviderInfo::Acl.category(), "Accelerator");
+        assert_eq!(ExecutionProviderInfo::ArmNn.category(), "Accelerator");
     }
 }
