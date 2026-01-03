@@ -20,6 +20,38 @@ fn fixtures_available() -> bool {
     Path::new(FIXTURES_DIR).join("birdnet_v24.onnx").exists()
 }
 
+/// Get Perch v2 test assets from environment variables
+fn get_perch_v2_test_assets() -> Option<(String, String)> {
+    let model_path = match std::env::var("PERCH_V2_MODEL") {
+        Ok(p) => p,
+        Err(_) => {
+            eprintln!("Skipping test: PERCH_V2_MODEL environment variable not set");
+            eprintln!("To run this test locally: export PERCH_V2_MODEL=/path/to/perch-v2.onnx");
+            return None;
+        }
+    };
+
+    let labels_path = match std::env::var("PERCH_V2_LABELS") {
+        Ok(p) => p,
+        Err(_) => {
+            eprintln!("Skipping test: PERCH_V2_LABELS environment variable not set");
+            eprintln!("To run this test locally: export PERCH_V2_LABELS=/path/to/perch-v2.csv");
+            return None;
+        }
+    };
+
+    if !Path::new(&model_path).exists() {
+        eprintln!("Skipping test: model not found at {model_path}");
+        return None;
+    }
+    if !Path::new(&labels_path).exists() {
+        eprintln!("Skipping test: labels not found at {labels_path}");
+        return None;
+    }
+
+    Some((model_path, labels_path))
+}
+
 /// Create silent audio segment
 fn silent_segment(model_type: ModelType) -> Vec<f32> {
     vec![0.0f32; model_type.sample_count()]
@@ -251,28 +283,9 @@ fn test_perch_v2_predict() -> Result<()> {
 fn test_perch_v2_auto_detection() {
     init_runtime().expect("failed to init runtime");
 
-    // Get model paths from environment variables
-    let Ok(model_path) = std::env::var("PERCH_V2_MODEL") else {
-        eprintln!("Skipping test: PERCH_V2_MODEL environment variable not set");
-        eprintln!("To run this test locally: export PERCH_V2_MODEL=/path/to/perch-v2.onnx");
+    let Some((model_path, labels_path)) = get_perch_v2_test_assets() else {
         return;
     };
-
-    let Ok(labels_path) = std::env::var("PERCH_V2_LABELS") else {
-        eprintln!("Skipping test: PERCH_V2_LABELS environment variable not set");
-        eprintln!("To run this test locally: export PERCH_V2_LABELS=/path/to/perch-v2.csv");
-        return;
-    };
-
-    // Skip if files don't exist
-    if !Path::new(&model_path).exists() {
-        eprintln!("Skipping test: model not found at {model_path}");
-        return;
-    }
-    if !Path::new(&labels_path).exists() {
-        eprintln!("Skipping test: labels not found at {labels_path}");
-        return;
-    }
 
     // Load classifier WITHOUT override - should auto-detect Perch v2
     let classifier = Classifier::builder()
@@ -303,20 +316,9 @@ fn test_perch_v2_auto_detection() {
 fn test_perch_v2_predict_real_model() {
     init_runtime().expect("failed to init runtime");
 
-    // Get model paths from environment variables
-    let Ok(model_path) = std::env::var("PERCH_V2_MODEL") else {
-        eprintln!("Skipping test: PERCH_V2_MODEL environment variable not set");
+    let Some((model_path, labels_path)) = get_perch_v2_test_assets() else {
         return;
     };
-
-    let Ok(labels_path) = std::env::var("PERCH_V2_LABELS") else {
-        eprintln!("Skipping test: PERCH_V2_LABELS environment variable not set");
-        return;
-    };
-
-    if !Path::new(&model_path).exists() || !Path::new(&labels_path).exists() {
-        return;
-    }
 
     let classifier = Classifier::builder()
         .model_path(&model_path)
@@ -357,17 +359,9 @@ fn test_perch_v2_predict_real_model() {
 fn test_perch_v2_batch_predict() {
     init_runtime().expect("failed to init runtime");
 
-    let Ok(model_path) = std::env::var("PERCH_V2_MODEL") else {
+    let Some((model_path, labels_path)) = get_perch_v2_test_assets() else {
         return;
     };
-
-    let Ok(labels_path) = std::env::var("PERCH_V2_LABELS") else {
-        return;
-    };
-
-    if !Path::new(&model_path).exists() || !Path::new(&labels_path).exists() {
-        return;
-    }
 
     let classifier = Classifier::builder()
         .model_path(&model_path)

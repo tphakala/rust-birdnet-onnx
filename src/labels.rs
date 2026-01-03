@@ -169,6 +169,20 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_csv_labels_perch_v2_inat_header() {
+        let content = "inat2024_fsd50k\nAmerican Robin\nNorthern Cardinal";
+        let labels = parse_csv_labels(content).unwrap();
+        assert_eq!(labels, vec!["American Robin", "Northern Cardinal"]);
+    }
+
+    #[test]
+    fn test_parse_csv_labels_perch_v2_fsd50k_header() {
+        let content = "dataset_fsd50k\nAmerican Robin\nNorthern Cardinal";
+        let labels = parse_csv_labels(content).unwrap();
+        assert_eq!(labels, vec!["American Robin", "Northern Cardinal"]);
+    }
+
+    #[test]
     fn test_parse_json_array() {
         let content = r#"["American Robin", "Northern Cardinal", "Blue Jay"]"#;
         let labels = parse_json_labels(content).unwrap();
