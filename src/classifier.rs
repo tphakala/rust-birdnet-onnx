@@ -4,7 +4,7 @@ use crate::detection::detect_model_type;
 use crate::error::{Error, Result};
 use crate::labels::load_labels_from_file;
 use crate::postprocess::top_k_predictions;
-use crate::types::{ModelConfig, ModelType, PredictionResult};
+use crate::types::{ExecutionProviderInfo, ModelConfig, ModelType, PredictionResult};
 use ndarray::Array2;
 use ort::session::Session;
 use ort::value::Value;
@@ -24,6 +24,7 @@ pub struct ClassifierBuilder {
     labels: Option<Labels>,
     model_type_override: Option<ModelType>,
     execution_providers: Vec<ort::execution_providers::ExecutionProviderDispatch>,
+    requested_provider: ExecutionProviderInfo,
     top_k: usize,
     min_confidence: Option<f32>,
 }
@@ -43,6 +44,7 @@ impl ClassifierBuilder {
             labels: None,
             model_type_override: None,
             execution_providers: Vec::new(),
+            requested_provider: ExecutionProviderInfo::Cpu,
             top_k: 10,
             min_confidence: None,
         }
@@ -157,6 +159,7 @@ impl ClassifierBuilder {
                 session: Mutex::new(session),
                 config,
                 labels,
+                requested_provider: self.requested_provider,
                 top_k: self.top_k,
                 min_confidence: self.min_confidence,
             }),
@@ -205,6 +208,7 @@ struct ClassifierInner {
     session: Mutex<Session>,
     config: ModelConfig,
     labels: Vec<String>,
+    requested_provider: ExecutionProviderInfo,
     top_k: usize,
     min_confidence: Option<f32>,
 }
@@ -222,6 +226,7 @@ impl std::fmt::Debug for Classifier {
         f.debug_struct("Classifier")
             .field("config", &self.inner.config)
             .field("labels_count", &self.inner.labels.len())
+            .field("requested_provider", &self.inner.requested_provider)
             .field("top_k", &self.inner.top_k)
             .field("min_confidence", &self.inner.min_confidence)
             .finish_non_exhaustive()
@@ -245,6 +250,19 @@ impl Classifier {
     #[must_use]
     pub fn labels(&self) -> &[String] {
         &self.inner.labels
+    }
+
+    /// Returns the execution provider that was requested for this classifier.
+    ///
+    /// **Note:** This returns the provider that was *requested* during build,
+    /// not necessarily the provider that is *actually active*. If the requested
+    /// provider is unavailable, ONNX Runtime will silently fall back to CPU.
+    ///
+    /// To verify the actual provider being used, enable ONNX Runtime verbose
+    /// logging via environment variable: `ORT_LOG_LEVEL=Verbose`
+    #[must_use]
+    pub fn requested_provider(&self) -> ExecutionProviderInfo {
+        self.inner.requested_provider
     }
 
     /// Run inference on a single audio segment
@@ -583,6 +601,7 @@ mod tests {
         assert_eq!(builder.min_confidence, None);
         assert_eq!(builder.model_type_override, None);
         assert!(builder.execution_providers.is_empty());
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cpu); // Default to CPU
     }
 
     #[test]
@@ -713,5 +732,34 @@ mod tests {
         let labels_mem = Labels::InMemory(vec!["test".to_string()]);
         let debug_str = format!("{labels_mem:?}");
         assert!(debug_str.contains("InMemory"));
+    }
+
+    // Execution provider tests
+
+    #[test]
+    fn test_requested_provider_defaults_to_cpu() {
+        let builder = ClassifierBuilder::new();
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cpu);
+    }
+
+    #[test]
+    fn test_requested_provider_stored_in_builder() {
+        let builder = ClassifierBuilder::new();
+        // Verify the default is CPU
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cpu);
+
+        // Note: This test verifies the field exists and has the correct default.
+        // Task 4 will add builder methods to set this to other providers.
+    }
+
+    #[test]
+    fn test_builder_debug_includes_requested_provider() {
+        let builder = ClassifierBuilder::new()
+            .model_path("test.onnx")
+            .labels(vec!["species1".to_string()]);
+
+        let debug_str = format!("{builder:?}");
+        assert!(debug_str.contains("requested_provider"));
+        assert!(debug_str.contains("Cpu"));
     }
 }
