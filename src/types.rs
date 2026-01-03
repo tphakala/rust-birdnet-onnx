@@ -121,7 +121,6 @@ pub struct LocationScore {
 
 /// Information about execution providers (hardware backends).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)] // Infrastructure for future use
 pub enum ExecutionProviderInfo {
     /// CPU execution provider (always available).
     Cpu,
@@ -150,7 +149,6 @@ pub enum ExecutionProviderInfo {
 impl ExecutionProviderInfo {
     /// Returns the execution provider name as a string.
     #[must_use]
-    #[allow(dead_code)] // Infrastructure for future use
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Cpu => "CPU",
@@ -169,7 +167,6 @@ impl ExecutionProviderInfo {
 
     /// Returns the hardware category for this execution provider.
     #[must_use]
-    #[allow(dead_code)] // Infrastructure for future use
     pub const fn category(self) -> &'static str {
         match self {
             Self::Cpu => "CPU",
