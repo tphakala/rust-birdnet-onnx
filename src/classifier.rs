@@ -92,7 +92,7 @@ impl ClassifierBuilder {
         self
     }
 
-    /// Override auto-detected model type (useful for Perch v2)
+    /// Override auto-detected model type (useful for `Perch` v2)
     #[must_use]
     pub const fn model_type(mut self, model_type: ModelType) -> Self {
         self.model_type_override = Some(model_type);

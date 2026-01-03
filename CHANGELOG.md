@@ -14,7 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Typed builder methods: `with_cuda()`, `with_tensorrt()`, etc.
 
 ### Changed
+
 - `Classifier::builder()` now tracks requested execution provider
+
+### Breaking Changes
+
+- The `ort::execution_providers` re-export has been renamed to `ort_execution_providers`
+  - **Migration**: Change `use birdnet_onnx::execution_providers` to `use birdnet_onnx::ort_execution_providers`
+  - **Reason**: Prevents naming conflict with the new typed builder methods and clarifies it's the raw ort module
 
 ### Notes
 - `requested_provider()` returns the *requested* provider, not the active one

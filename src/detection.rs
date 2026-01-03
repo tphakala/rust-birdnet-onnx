@@ -8,7 +8,7 @@ use crate::types::{ModelConfig, ModelType};
 /// # Arguments
 /// * `input_shape` - Input tensor shape, expected `[batch, samples]` or `[batch, 1, samples]`
 /// * `output_shapes` - Output tensor shapes
-/// * `override_type` - Optional user override for ambiguous models (v3.0 vs Perch)
+/// * `override_type` - Optional user override for ambiguous models (v3.0 vs `Perch`)
 ///
 /// # Errors
 /// Returns [`Error::ModelDetection`] if the model structure is not recognized.
@@ -27,7 +27,7 @@ pub fn detect_model_type(
 
     // Auto-detection based on sample count and output count
     match (sample_count, num_outputs) {
-        // BirdNET v2.4: 144,000 samples, 1 output (predictions)
+        // `BirdNET` v2.4: 144,000 samples, 1 output (predictions)
         (144_000, 1) => {
             let num_species = extract_last_dim(&output_shapes[0])?;
             Ok(ModelConfig {
@@ -40,7 +40,7 @@ pub fn detect_model_type(
             })
         }
 
-        // BirdNET v3.0: 160,000 samples, 2 outputs (embeddings, predictions)
+        // `BirdNET` v3.0: 160,000 samples, 2 outputs (embeddings, predictions)
         (160_000, 2) => {
             let embedding_dim = extract_last_dim(&output_shapes[0])?;
             let num_species = extract_last_dim(&output_shapes[1])?;
@@ -55,7 +55,7 @@ pub fn detect_model_type(
             })
         }
 
-        // Perch v2: 160,000 samples, 4 outputs (embedding, spatial_embedding, spectrogram, predictions)
+        // `Perch` v2: 160,000 samples, 4 outputs (embedding, spatial_embedding, spectrogram, predictions)
         (160_000, 4) => {
             let embedding_dim = extract_last_dim(&output_shapes[0])?;
             let num_species = extract_last_dim(&output_shapes[3])?; // predictions at index 3
@@ -99,7 +99,10 @@ fn build_config_with_override(
         ModelType::BirdNetV24 => {
             if output_shapes.len() != 1 {
                 return Err(Error::ModelDetection {
-                    reason: format!("BirdNET v2.4 expects 1 output, got {}", output_shapes.len()),
+                    reason: format!(
+                        "`BirdNET` v2.4 expects 1 output, got {}",
+                        output_shapes.len()
+                    ),
                 });
             }
             (None, extract_last_dim(&output_shapes[0])?)
@@ -108,7 +111,7 @@ fn build_config_with_override(
             if output_shapes.len() != 2 {
                 return Err(Error::ModelDetection {
                     reason: format!(
-                        "BirdNET v3.0 expects 2 outputs, got {}",
+                        "`BirdNET` v3.0 expects 2 outputs, got {}",
                         output_shapes.len()
                     ),
                 });
@@ -121,7 +124,7 @@ fn build_config_with_override(
         ModelType::PerchV2 => {
             if output_shapes.len() != 4 {
                 return Err(Error::ModelDetection {
-                    reason: format!("Perch v2 expects 4 outputs, got {}", output_shapes.len()),
+                    reason: format!("`Perch` v2 expects 4 outputs, got {}", output_shapes.len()),
                 });
             }
             (
@@ -210,7 +213,7 @@ mod tests {
     #[test]
     fn test_detect_perch_v2() {
         let input_shape = vec![1, 160_000];
-        // Perch v2 has 4 outputs: embedding, spatial_embedding, spectrogram, predictions
+        // `Perch` v2 has 4 outputs: embedding, spatial_embedding, spectrogram, predictions
         let output_shapes = vec![
             vec![1, 1536],        // embedding
             vec![1, 16, 4, 1536], // spatial_embedding
@@ -231,7 +234,7 @@ mod tests {
     #[test]
     fn test_detect_with_perch_override() {
         let input_shape = vec![1, 160_000];
-        // Perch v2 has 4 outputs: embedding, spatial_embedding, spectrogram, predictions
+        // `Perch` v2 has 4 outputs: embedding, spatial_embedding, spectrogram, predictions
         let output_shapes = vec![
             vec![1, 512],        // embedding
             vec![1, 16, 4, 512], // spatial_embedding
@@ -252,7 +255,7 @@ mod tests {
         let input_shape = vec![1, 160_000];
         let output_shapes = vec![vec![1, 1024], vec![1, 1000]];
 
-        // BirdNET v2.4 expects 144,000 samples, not 160,000
+        // `BirdNET` v2.4 expects 144,000 samples, not 160,000
         let result = detect_model_type(&input_shape, &output_shapes, Some(ModelType::BirdNetV24));
 
         assert!(result.is_err());

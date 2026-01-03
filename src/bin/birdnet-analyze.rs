@@ -1,4 +1,4 @@
-//! CLI tool for analyzing WAV files for bird species using BirdNET/Perch models.
+//! CLI tool for analyzing WAV files for bird species using `BirdNET`/`Perch` models.
 
 #![allow(clippy::print_stdout)] // CLI tool needs stdout
 #![allow(clippy::print_stderr)] // CLI tool needs stderr
@@ -12,7 +12,7 @@ use std::time::Instant;
 /// This is 2^15 (32768), used to convert i16 samples to f32 range [-1.0, 1.0].
 const I16_NORMALIZATION_FACTOR: f32 = 32768.0;
 
-/// Analyze WAV files for bird species using BirdNET/Perch ONNX models.
+/// Analyze WAV files for bird species using `BirdNET`/`Perch` ONNX models.
 #[derive(Parser, Debug)]
 #[command(name = "birdnet-analyze")]
 #[command(about = "Analyze WAV files for bird species")]

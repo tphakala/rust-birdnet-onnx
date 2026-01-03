@@ -1,12 +1,12 @@
 //! # birdnet-onnx
 //!
-//! A Rust library for running inference on `BirdNET` and Perch ONNX models.
+//! A Rust library for running inference on `BirdNET` and `Perch` ONNX models.
 //!
 //! ## Supported Models
 //!
 //! - **`BirdNET` v2.4**: 48kHz, 3s segments (144,000 samples)
 //! - **`BirdNET` v3.0**: 32kHz, 5s segments (160,000 samples)
-//! - **Perch v2**: 32kHz, 5s segments (160,000 samples)
+//! - **`Perch` v2**: 32kHz, 5s segments (160,000 samples)
 //!
 //! ## Example
 //!
