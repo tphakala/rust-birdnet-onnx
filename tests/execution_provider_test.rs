@@ -78,3 +78,40 @@ fn test_execution_provider_info_category() {
     assert_eq!(ExecutionProviderInfo::CoreMl.category(), "Neural Engine");
     assert_eq!(ExecutionProviderInfo::Qnn.category(), "NPU");
 }
+
+#[test]
+fn test_end_to_end_provider_detection() {
+    if !fixtures_available() {
+        eprintln!("Skipping: fixtures not available");
+        return;
+    }
+
+    // List all available providers
+    let available = available_execution_providers();
+    println!("Available providers: {:?}", available);
+
+    // Try to build with CUDA
+    let classifier = Classifier::builder()
+        .model_path(format!("{FIXTURES_DIR}/birdnet_v24.onnx"))
+        .labels_path(format!("{FIXTURES_DIR}/birdnet_v24_labels.txt"))
+        .with_cuda()
+        .build()
+        .unwrap();
+
+    let active_provider = classifier.execution_provider();
+    println!(
+        "Active provider: {} ({})",
+        active_provider.as_str(),
+        active_provider.category()
+    );
+
+    // Verify provider is one of the available ones
+    // (Might be CPU due to fallback)
+    assert!(
+        available.contains(&active_provider),
+        "Active provider should be in available list"
+    );
+
+    // Verify we can query it multiple times
+    assert_eq!(classifier.execution_provider(), active_provider);
+}
