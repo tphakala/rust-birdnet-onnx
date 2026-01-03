@@ -19,7 +19,13 @@ macro_rules! with_provider_method {
             use ort::execution_providers::$provider_struct;
             self.execution_providers
                 .push($provider_struct::default().into());
-            self.requested_provider = ExecutionProviderInfo::$provider_enum;
+            // Only set requested_provider if it's still the default (CPU).
+            // This aligns with ONNX Runtime's behavior: it tries providers
+            // in the order they were added, so the first non-CPU provider
+            // is the most relevant one to track.
+            if self.requested_provider == ExecutionProviderInfo::Cpu {
+                self.requested_provider = ExecutionProviderInfo::$provider_enum;
+            }
             self
         }
     };
@@ -906,22 +912,22 @@ mod tests {
     }
 
     #[test]
-    fn test_chaining_multiple_providers_last_wins() {
+    fn test_chaining_multiple_providers_first_wins() {
         let builder = ClassifierBuilder::new().with_cuda().with_tensorrt();
-        // Last one wins
-        assert_eq!(builder.requested_provider, ExecutionProviderInfo::TensorRt);
+        // First non-CPU provider wins (aligns with ort's provider priority)
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cuda);
         // Both providers added to the vec
         assert_eq!(builder.execution_providers.len(), 2);
     }
 
     #[test]
-    fn test_chaining_three_providers_last_wins() {
+    fn test_chaining_three_providers_first_wins() {
         let builder = ClassifierBuilder::new()
             .with_cuda()
             .with_tensorrt()
             .with_directml();
-        // Last one wins
-        assert_eq!(builder.requested_provider, ExecutionProviderInfo::DirectMl);
+        // First non-CPU provider wins (aligns with ort's provider priority)
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cuda);
         // All three providers added
         assert_eq!(builder.execution_providers.len(), 3);
     }
@@ -956,8 +962,8 @@ mod tests {
             .with_acl()
             .with_armnn();
 
-        // Last method wins
-        assert_eq!(builder.requested_provider, ExecutionProviderInfo::ArmNn);
+        // First non-CPU provider wins (aligns with ort's provider priority)
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cuda);
         // All 10 providers added
         assert_eq!(builder.execution_providers.len(), 10);
     }
