@@ -556,3 +556,49 @@ fn test_range_filter_invalid_inputs() {
     let result = range_filter.predict(0.0, 0.0, 1, 32);
     assert!(result.is_err());
 }
+
+#[test]
+#[allow(clippy::expect_used)]
+fn test_range_filter_from_classifier_labels() {
+    init_runtime().expect("failed to init runtime");
+
+    // Get model paths from environment variables
+    let Ok(model_path) = std::env::var("BIRDNET_META_MODEL") else {
+        eprintln!("Skipping test: BIRDNET_META_MODEL environment variable not set");
+        return;
+    };
+
+    // Skip if meta model doesn't exist
+    if !std::path::Path::new(&model_path).exists() {
+        eprintln!("Skipping test: meta model not found at {model_path}");
+        return;
+    }
+
+    // Load classifier with actual model (if available)
+    let classifier_model_path = format!("{FIXTURES_DIR}/birdnet_v24.onnx");
+    if !std::path::Path::new(&classifier_model_path).exists() {
+        eprintln!("Skipping test: classifier model not found");
+        return;
+    }
+
+    let classifier = Classifier::builder()
+        .model_path(&classifier_model_path)
+        .labels_path(format!("{FIXTURES_DIR}/birdnet_v24_labels.txt"))
+        .build()
+        .expect("failed to build classifier");
+
+    // Build range filter using classifier labels
+    let range_filter = RangeFilter::builder()
+        .model_path(&model_path)
+        .from_classifier_labels(classifier.labels())
+        .threshold(0.01)
+        .build()
+        .expect("failed to build range filter");
+
+    // Verify it works
+    let scores = range_filter
+        .predict(60.1695, 24.9354, 6, 15)
+        .expect("prediction failed");
+
+    assert!(!scores.is_empty());
+}

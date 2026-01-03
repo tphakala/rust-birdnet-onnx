@@ -134,6 +134,16 @@ impl RangeFilterBuilder {
         self
     }
 
+    /// Use labels from an existing Classifier.
+    ///
+    /// This is a convenience method that copies labels from a classifier,
+    /// ensuring they stay in sync with the main model.
+    #[must_use]
+    pub fn from_classifier_labels(mut self, labels: &[String]) -> Self {
+        self.labels = Some(Labels::InMemory(labels.to_vec()));
+        self
+    }
+
     /// Add an execution provider (GPU, CPU, etc.)
     #[must_use]
     pub fn execution_provider(
@@ -737,5 +747,18 @@ mod tests {
         assert_eq!(filtered[1].confidence, 0.7);
         assert_eq!(filtered[2].species, "Species D");
         assert_eq!(filtered[2].confidence, 0.9);
+    }
+
+    #[test]
+    fn test_builder_from_classifier_labels() {
+        // This test verifies the builder can accept a label reference
+        // We can't test with a real Classifier without a model file,
+        // so we test the builder configuration
+
+        let labels = vec!["Species A".to_string(), "Species B".to_string()];
+        let builder = RangeFilterBuilder::new().from_classifier_labels(&labels);
+
+        // Verify labels were set (we'll need to expose this for testing)
+        assert!(matches!(builder.labels, Some(Labels::InMemory(_))));
     }
 }
