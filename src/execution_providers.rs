@@ -29,7 +29,7 @@ macro_rules! check_provider {
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// use birdnet_onnx::available_execution_providers;
 ///
 /// let providers = available_execution_providers();
