@@ -22,22 +22,16 @@ fn fixtures_available() -> bool {
 
 /// Get Perch v2 test assets from environment variables
 fn get_perch_v2_test_assets() -> Option<(String, String)> {
-    let model_path = match std::env::var("PERCH_V2_MODEL") {
-        Ok(p) => p,
-        Err(_) => {
-            eprintln!("Skipping test: PERCH_V2_MODEL environment variable not set");
-            eprintln!("To run this test locally: export PERCH_V2_MODEL=/path/to/perch-v2.onnx");
-            return None;
-        }
+    let Ok(model_path) = std::env::var("PERCH_V2_MODEL") else {
+        eprintln!("Skipping test: PERCH_V2_MODEL environment variable not set");
+        eprintln!("To run this test locally: export PERCH_V2_MODEL=/path/to/perch-v2.onnx");
+        return None;
     };
 
-    let labels_path = match std::env::var("PERCH_V2_LABELS") {
-        Ok(p) => p,
-        Err(_) => {
-            eprintln!("Skipping test: PERCH_V2_LABELS environment variable not set");
-            eprintln!("To run this test locally: export PERCH_V2_LABELS=/path/to/perch-v2.csv");
-            return None;
-        }
+    let Ok(labels_path) = std::env::var("PERCH_V2_LABELS") else {
+        eprintln!("Skipping test: PERCH_V2_LABELS environment variable not set");
+        eprintln!("To run this test locally: export PERCH_V2_LABELS=/path/to/perch-v2.csv");
+        return None;
     };
 
     if !Path::new(&model_path).exists() {
