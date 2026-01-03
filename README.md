@@ -86,6 +86,28 @@ let refs: Vec<&[f32]> = segments.iter().map(|s| s.as_slice()).collect();
 let results = classifier.predict_batch(&refs)?;
 ```
 
+## Execution Provider Query
+
+Query which execution provider was requested:
+
+```rust
+let classifier = Classifier::builder()
+    .model_path("model.onnx")
+    .labels_path("labels.txt")
+    .with_cuda()
+    .build()?;
+
+// Returns the requested provider (not necessarily the active one)
+println!("Requested: {}", classifier.requested_provider().as_str());
+```
+
+**Note:** This returns the *requested* execution provider. If the requested
+provider is unavailable, ONNX Runtime silently falls back to CPU. To verify
+which provider is actually running:
+
+1. Enable verbose logging: `export ORT_LOG_LEVEL=Verbose`
+2. Check log output for "Using [provider]" messages
+
 ## CLI Usage
 
 A basic CLI tool is included for quick testing of the library. It is not intended for production analysis tasks.
