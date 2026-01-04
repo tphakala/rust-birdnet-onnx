@@ -141,6 +141,16 @@ fn list_providers_and_exit() -> ! {
             println!("  Note: On Windows, this searches the PATH for onnxruntime.dll");
             println!("  To find the current location, use: where onnxruntime.dll");
         }
+        #[cfg(target_os = "linux")]
+        {
+            println!("  Note: On Linux, this searches paths in /etc/ld.so.conf and the LD_LIBRARY_PATH environment variable.");
+            println!("  To find the library, you can try: ldconfig -p | grep onnxruntime");
+        }
+        #[cfg(target_os = "macos")]
+        {
+            println!("  Note: On macOS, this searches standard paths and the DYLD_LIBRARY_PATH environment variable.");
+            println!("  To find the library, you can try: find /usr/local /opt -name \"libonnxruntime.dylib\" 2>/dev/null");
+        }
     }
     println!();
 
