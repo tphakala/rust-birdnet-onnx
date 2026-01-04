@@ -80,6 +80,10 @@ struct Args {
     /// Batch size for inference (defaults: 8 for CPU, 32 for GPU)
     #[arg(short, long)]
     batch_size: Option<usize>,
+
+    /// Enable verbose logging for debugging
+    #[arg(short, long)]
+    verbose: bool,
 }
 
 /// Parse model type from CLI argument.
@@ -255,8 +259,27 @@ fn run_with_args(args: Args) -> Result<()> {
         std::process::exit(0);
     }
 
+    // Configure verbose logging
+    if args.verbose {
+        // SAFETY: Setting ORT_LOG_SEVERITY_LEVEL before init_runtime() is safe
+        // as it's read during initialization and we're single-threaded at this point
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("ORT_LOG_SEVERITY_LEVEL", "0"); // 0=Verbose, 1=Info, 2=Warning, 3=Error, 4=Fatal
+        }
+        eprintln!("[DEBUG] Verbose logging enabled (ORT_LOG_SEVERITY_LEVEL=0)");
+        eprintln!("[DEBUG] Initializing ONNX Runtime...");
+    }
+
     // Initialize ONNX Runtime (auto-detects bundled libraries)
+    let init_start = Instant::now();
     init_runtime()?;
+    if args.verbose {
+        eprintln!(
+            "[DEBUG] ONNX Runtime initialized in {:?}",
+            init_start.elapsed()
+        );
+    }
 
     // Parse and validate execution provider
     let requested_provider = parse_provider(&args.provider)?;
@@ -309,6 +332,14 @@ fn run_with_args(args: Args) -> Result<()> {
         })?;
 
     // Build classifier with selected execution provider
+    if args.verbose {
+        eprintln!(
+            "[DEBUG] Building classifier with {} provider...",
+            requested_provider.as_str()
+        );
+    }
+    let build_start = Instant::now();
+
     let mut builder = Classifier::builder()
         .model_path(model_path.display().to_string())
         .labels_path(labels_path.display().to_string())
@@ -351,10 +382,20 @@ fn run_with_args(args: Args) -> Result<()> {
     };
 
     let classifier = builder.build()?;
+    if args.verbose {
+        eprintln!("[DEBUG] Classifier built in {:?}", build_start.elapsed());
+    }
     let config = classifier.config();
 
     // Read WAV file
+    if args.verbose {
+        eprintln!("[DEBUG] Reading WAV file: {}", audio_file.display());
+    }
+    let wav_start = Instant::now();
     let (samples, sample_rate, duration_secs) = read_wav(audio_file)?;
+    if args.verbose {
+        eprintln!("[DEBUG] WAV file read in {:?}", wav_start.elapsed());
+    }
 
     // Validate sample rate
     if sample_rate != config.sample_rate {
@@ -393,12 +434,28 @@ fn run_with_args(args: Args) -> Result<()> {
     println!();
 
     // Chunk audio and run inference
-    let start_time = Instant::now();
+    if args.verbose {
+        eprintln!("[DEBUG] Chunking audio into segments...");
+    }
+    let chunk_start = Instant::now();
     let segments = chunk_audio(&samples, config.sample_count, args.overlap, sample_rate);
     let segment_count = segments.len();
+    if args.verbose {
+        eprintln!(
+            "[DEBUG] Created {} segments in {:?}",
+            segment_count,
+            chunk_start.elapsed()
+        );
+        eprintln!("[DEBUG] Starting inference (batch_size={batch_size})...");
+    }
+
+    let start_time = Instant::now();
+    let mut batch_num = 0;
 
     // Process segments in batches for better GPU performance
     for batch_chunk in segments.chunks(batch_size) {
+        batch_num += 1;
+
         // Prepare batch: collect references to segment data
         let batch_segments: Vec<&[f32]> = batch_chunk
             .iter()
@@ -406,7 +463,23 @@ fn run_with_args(args: Args) -> Result<()> {
             .collect();
 
         // Run batch inference
+        if args.verbose {
+            eprintln!(
+                "[DEBUG] Processing batch {}/{} ({} segments)...",
+                batch_num,
+                segment_count.div_ceil(batch_size),
+                batch_segments.len()
+            );
+        }
+        let batch_start = Instant::now();
         let results = classifier.predict_batch(&batch_segments)?;
+        if args.verbose {
+            eprintln!(
+                "[DEBUG] Batch {} completed in {:?}",
+                batch_num,
+                batch_start.elapsed()
+            );
+        }
 
         // Process results with their corresponding time offsets
         for ((time_offset, _), result) in batch_chunk.iter().zip(results) {
