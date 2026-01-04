@@ -10,6 +10,7 @@ use birdnet_onnx::{
 use clap::Parser;
 use std::path::PathBuf;
 use std::time::Instant;
+use tracing_subscriber::{EnvFilter, fmt};
 
 /// Normalization factor for 16-bit signed audio samples.
 /// This is 2^15 (32768), used to convert i16 samples to f32 range [-1.0, 1.0].
@@ -259,16 +260,24 @@ fn run_with_args(args: Args) -> Result<()> {
         std::process::exit(0);
     }
 
-    // Configure verbose logging
+    // Configure verbose logging with tracing
     if args.verbose {
-        // SAFETY: Setting ORT_LOG_SEVERITY_LEVEL before init_runtime() is safe
-        // as it's read during initialization and we're single-threaded at this point
-        #[allow(unsafe_code)]
-        unsafe {
-            std::env::set_var("ORT_LOG_SEVERITY_LEVEL", "0"); // 0=Verbose, 1=Info, 2=Warning, 3=Error, 4=Fatal
-        }
-        eprintln!("[DEBUG] Verbose logging enabled (ORT_LOG_SEVERITY_LEVEL=0)");
-        eprintln!("[DEBUG] Initializing ONNX Runtime...");
+        // Initialize tracing subscriber with timestamps for ort internal logging
+        let filter =
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("ort=debug"));
+
+        fmt()
+            .with_target(false)
+            .with_level(true)
+            .with_timer(fmt::time::SystemTime)
+            .with_env_filter(filter)
+            .init();
+
+        eprintln!(
+            "{} [DEBUG] Verbose logging enabled (RUST_LOG=ort=debug)",
+            timestamp()
+        );
+        eprintln!("{} [DEBUG] Initializing ONNX Runtime...", timestamp());
     }
 
     // Initialize ONNX Runtime (auto-detects bundled libraries)
@@ -276,7 +285,8 @@ fn run_with_args(args: Args) -> Result<()> {
     init_runtime()?;
     if args.verbose {
         eprintln!(
-            "[DEBUG] ONNX Runtime initialized in {:?}",
+            "{} [DEBUG] ONNX Runtime initialized in {:?}",
+            timestamp(),
             init_start.elapsed()
         );
     }
@@ -334,7 +344,8 @@ fn run_with_args(args: Args) -> Result<()> {
     // Build classifier with selected execution provider
     if args.verbose {
         eprintln!(
-            "[DEBUG] Building classifier with {} provider...",
+            "{} [DEBUG] Building classifier with {} provider...",
+            timestamp(),
             requested_provider.as_str()
         );
     }
@@ -383,18 +394,30 @@ fn run_with_args(args: Args) -> Result<()> {
 
     let classifier = builder.build()?;
     if args.verbose {
-        eprintln!("[DEBUG] Classifier built in {:?}", build_start.elapsed());
+        eprintln!(
+            "{} [DEBUG] Classifier built in {:?}",
+            timestamp(),
+            build_start.elapsed()
+        );
     }
     let config = classifier.config();
 
     // Read WAV file
     if args.verbose {
-        eprintln!("[DEBUG] Reading WAV file: {}", audio_file.display());
+        eprintln!(
+            "{} [DEBUG] Reading WAV file: {}",
+            timestamp(),
+            audio_file.display()
+        );
     }
     let wav_start = Instant::now();
     let (samples, sample_rate, duration_secs) = read_wav(audio_file)?;
     if args.verbose {
-        eprintln!("[DEBUG] WAV file read in {:?}", wav_start.elapsed());
+        eprintln!(
+            "{} [DEBUG] WAV file read in {:?}",
+            timestamp(),
+            wav_start.elapsed()
+        );
     }
 
     // Validate sample rate
@@ -435,18 +458,22 @@ fn run_with_args(args: Args) -> Result<()> {
 
     // Chunk audio and run inference
     if args.verbose {
-        eprintln!("[DEBUG] Chunking audio into segments...");
+        eprintln!("{} [DEBUG] Chunking audio into segments...", timestamp());
     }
     let chunk_start = Instant::now();
     let segments = chunk_audio(&samples, config.sample_count, args.overlap, sample_rate);
     let segment_count = segments.len();
     if args.verbose {
         eprintln!(
-            "[DEBUG] Created {} segments in {:?}",
+            "{} [DEBUG] Created {} segments in {:?}",
+            timestamp(),
             segment_count,
             chunk_start.elapsed()
         );
-        eprintln!("[DEBUG] Starting inference (batch_size={batch_size})...");
+        eprintln!(
+            "{} [DEBUG] Starting inference (batch_size={batch_size})...",
+            timestamp()
+        );
     }
 
     let start_time = Instant::now();
@@ -465,7 +492,8 @@ fn run_with_args(args: Args) -> Result<()> {
         // Run batch inference
         if args.verbose {
             eprintln!(
-                "[DEBUG] Processing batch {}/{} ({} segments)...",
+                "{} [DEBUG] Processing batch {}/{} ({} segments)...",
+                timestamp(),
                 batch_num,
                 segment_count.div_ceil(batch_size),
                 batch_segments.len()
@@ -475,7 +503,8 @@ fn run_with_args(args: Args) -> Result<()> {
         let results = classifier.predict_batch(&batch_segments)?;
         if args.verbose {
             eprintln!(
-                "[DEBUG] Batch {} completed in {:?}",
+                "{} [DEBUG] Batch {} completed in {:?}",
+                timestamp(),
                 batch_num,
                 batch_start.elapsed()
             );
@@ -634,4 +663,11 @@ fn format_duration(secs: f32) -> String {
     } else {
         format!("{secs_part}s")
     }
+}
+
+/// Get current timestamp in ISO 8601 format with milliseconds.
+fn timestamp() -> String {
+    let now = std::time::SystemTime::now();
+    let datetime: chrono::DateTime<chrono::Utc> = now.into();
+    datetime.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()
 }

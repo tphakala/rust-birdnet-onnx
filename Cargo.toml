@@ -24,6 +24,8 @@ csv = "1"
 ndarray = "0.16"
 clap = { version = "4", features = ["derive"] }
 hound = "3"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
+chrono = "0.4"
 
 [dev-dependencies]
 tempfile = "3"
