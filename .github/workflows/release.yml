@@ -153,6 +153,7 @@ jobs:
   github-release:
     name: Create GitHub Release
     needs: [publish, build-binaries]
+    if: always() && needs.build-binaries.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
