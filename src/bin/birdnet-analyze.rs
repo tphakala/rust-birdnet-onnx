@@ -132,7 +132,31 @@ const fn provider_description(provider: ExecutionProviderInfo) -> &'static str {
 /// List all execution providers and exit.
 fn list_providers_and_exit() -> Result<()> {
     // Initialize ONNX Runtime first (required for available_execution_providers)
-    init_runtime()?;
+    if let Err(e) = init_runtime() {
+        eprintln!("Error initializing ONNX Runtime: {e}");
+        eprintln!();
+        #[cfg(target_os = "windows")]
+        {
+            eprintln!("Windows DLL search order for onnxruntime.dll:");
+            if let Ok(exe_path) = std::env::current_exe() {
+                if let Some(exe_dir) = exe_path.parent() {
+                    eprintln!("  1. Exe directory: {}\\onnxruntime.dll", exe_dir.display());
+                }
+            }
+            if let Ok(cwd) = std::env::current_dir() {
+                eprintln!("  2. Current directory: {}\\onnxruntime.dll", cwd.display());
+            }
+            eprintln!("  3. System directory: C:\\Windows\\System32\\onnxruntime.dll");
+            eprintln!("  4. Windows directory: C:\\Windows\\onnxruntime.dll");
+            eprintln!("  5. Directories in PATH environment variable");
+            eprintln!();
+            eprintln!("To search your entire system:");
+            eprintln!(
+                "  Get-ChildItem -Path C:\\ -Filter onnxruntime.dll -Recurse -ErrorAction SilentlyContinue"
+            );
+        }
+        return Err(e);
+    }
 
     // Show ONNX Runtime library path for debugging
     if let Some(lib_path) = find_ort_library() {
