@@ -396,13 +396,13 @@ fn run_with_args(args: Args) -> Result<()> {
 
     let elapsed = start_time.elapsed();
     let elapsed_secs = elapsed.as_secs_f32();
+    #[allow(clippy::cast_precision_loss)]
     let segments_per_sec = segment_count as f32 / elapsed_secs;
     let audio_secs_per_sec = duration_secs / elapsed_secs;
 
     println!();
     println!(
-        "{} segments analyzed in {:.1}s ({:.1} segments/s, {:.1}x realtime)",
-        segment_count, elapsed_secs, segments_per_sec, audio_secs_per_sec
+        "{segment_count} segments analyzed in {elapsed_secs:.1}s ({segments_per_sec:.1} segments/s, {audio_secs_per_sec:.1}x realtime)"
     );
 
     Ok(())
