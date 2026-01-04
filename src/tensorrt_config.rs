@@ -8,9 +8,12 @@
 //!
 //! The default configuration enables:
 //! - **FP16 precision**: 2x faster inference on GPUs with tensor cores
-//! - **CUDA graphs**: Reduced CPU launch overhead for models with many small layers
 //! - **Engine caching**: Reduces session creation from minutes to seconds
 //! - **Timing cache**: Accelerates future builds with similar layer configurations
+//!
+//! **CUDA graphs are disabled by default** to avoid a known bug in ONNX Runtime 1.22.0.
+//! You can enable them explicitly with `.with_cuda_graph(true)` if your workload doesn't
+//! trigger the bug. See [`TensorRTConfig::new()`] for details
 //!
 //! # Example
 //!
@@ -40,9 +43,11 @@
 ///
 /// The default configuration enables:
 /// - **FP16 precision**: 2x faster inference on GPUs with tensor cores
-/// - **CUDA graphs**: Reduced CPU launch overhead for models with many small layers
 /// - **Engine caching**: Reduces session creation from minutes to seconds
 /// - **Timing cache**: Accelerates future builds with similar layer configurations
+///
+/// **CUDA graphs are disabled by default** to avoid a known bug in ONNX Runtime 1.22.0.
+/// See [`TensorRTConfig::new()`] for details and how to enable them if needed
 ///
 /// # Example: Custom Configuration
 ///
@@ -97,7 +102,7 @@ impl Default for TensorRTConfig {
         Self {
             // Performance defaults (same as with_tensorrt())
             fp16: Some(true),
-            cuda_graph: Some(true),
+            cuda_graph: Some(false), // Disabled by default due to ONNX Runtime bug #20050
             engine_cache: Some(true),
             timing_cache: Some(true),
             builder_optimization_level: Some(3),
@@ -116,12 +121,29 @@ impl Default for TensorRTConfig {
 
 impl TensorRTConfig {
     /// Create a new `TensorRT` configuration with optimized defaults
+    ///
+    /// # CUDA Graphs
+    ///
+    /// CUDA graphs are **disabled by default** to avoid a known bug in ONNX Runtime 1.22.0
+    /// where graph replay fails on batch 2+ with "expected 'typeinfo_ptr' to not be null".
+    /// See [ONNX Runtime Issue #20050](https://github.com/microsoft/onnxruntime/issues/20050).
+    ///
+    /// If you need CUDA graphs for performance and your workload doesn't trigger the bug,
+    /// you can enable them explicitly:
+    ///
+    /// ```no_run
+    /// use birdnet_onnx::TensorRTConfig;
+    ///
+    /// let config = TensorRTConfig::new()
+    ///     .with_cuda_graph(true);  // Opt-in to CUDA graphs
+    /// # let _ = config;
+    /// ```
     #[must_use]
     pub const fn new() -> Self {
         Self {
             // Performance defaults
             fp16: Some(true),
-            cuda_graph: Some(true),
+            cuda_graph: Some(false), // Disabled by default due to ONNX Runtime bug #20050
             engine_cache: Some(true),
             timing_cache: Some(true),
             builder_optimization_level: Some(3),
@@ -166,7 +188,15 @@ impl TensorRTConfig {
     /// Reduces CPU launch overhead for models with many small layers.
     /// Provides significant speedup by batching GPU operations.
     ///
-    /// Default: `true`
+    /// **Default: `false`** (disabled due to ONNX Runtime bug #20050)
+    ///
+    /// # Warning
+    ///
+    /// ONNX Runtime 1.22.0 has a bug where CUDA graph replay fails on batch 2+
+    /// with "expected 'typeinfo_ptr' to not be null". Only enable if you've
+    /// verified your workload doesn't trigger this bug.
+    ///
+    /// See: <https://github.com/microsoft/onnxruntime/issues/20050>
     #[must_use]
     pub const fn with_cuda_graph(mut self, enable: bool) -> Self {
         self.cuda_graph = Some(enable);
@@ -339,7 +369,7 @@ mod tests {
     fn test_tensorrt_config_default() {
         let config = TensorRTConfig::default();
         assert_eq!(config.fp16, Some(true));
-        assert_eq!(config.cuda_graph, Some(true));
+        assert_eq!(config.cuda_graph, Some(false)); // Disabled by default due to ONNX Runtime bug
         assert_eq!(config.engine_cache, Some(true));
         assert_eq!(config.timing_cache, Some(true));
         assert_eq!(config.builder_optimization_level, Some(3));
@@ -351,7 +381,7 @@ mod tests {
     fn test_tensorrt_config_new() {
         let config = TensorRTConfig::new();
         assert_eq!(config.fp16, Some(true));
-        assert_eq!(config.cuda_graph, Some(true));
+        assert_eq!(config.cuda_graph, Some(false)); // Disabled by default due to ONNX Runtime bug
         assert_eq!(config.engine_cache, Some(true));
         assert_eq!(config.timing_cache, Some(true));
         assert_eq!(config.builder_optimization_level, Some(3));
@@ -418,5 +448,12 @@ mod tests {
     fn test_tensorrt_config_min_subgraph_size() {
         let config = TensorRTConfig::new().with_min_subgraph_size(5);
         assert_eq!(config.min_subgraph_size, Some(5));
+    }
+
+    #[test]
+    fn test_tensorrt_config_cuda_graph_opt_in() {
+        // Verify users can explicitly enable CUDA graphs if needed
+        let config = TensorRTConfig::new().with_cuda_graph(true);
+        assert_eq!(config.cuda_graph, Some(true));
     }
 }

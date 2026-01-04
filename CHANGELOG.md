@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING**: `TensorRTConfig` now disables CUDA graphs by default
+  - CUDA graphs are disabled to avoid ONNX Runtime 1.22.0 bug #20050
+  - Bug causes panic on batch 2+ with "expected 'typeinfo_ptr' to not be null"
+  - Fixes [#26](https://github.com/tphakala/rust-birdnet-onnx/issues/26)
+  - **Migration**: To enable CUDA graphs (if your workload doesn't trigger the bug):
+
+    ```rust
+    let config = TensorRTConfig::new().with_cuda_graph(true);
+    let classifier = Classifier::builder()
+        .with_tensorrt_config(config)
+        .build()?;
+    ```
+
+  - **Impact**: Minimal performance difference in practice (batches 2+ still fast)
+  - See upstream: [ONNX Runtime Issue #20050](https://github.com/microsoft/onnxruntime/issues/20050)
+
 ## [1.5.0] - 2026-01-04
 
 ### Changed

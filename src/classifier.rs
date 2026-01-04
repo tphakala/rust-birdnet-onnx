@@ -135,9 +135,9 @@ impl ClassifierBuilder {
 
     /// Request `TensorRT` execution provider (NVIDIA GPU) with optimized defaults
     ///
-    /// This method enables performance optimizations including FP16 precision,
-    /// CUDA graphs, and caching. Expected performance: 4x faster than unoptimized
-    /// `TensorRT` and comparable to or better than CUDA provider.
+    /// This method enables performance optimizations including FP16 precision and caching.
+    /// Expected performance: 4x faster than unoptimized `TensorRT` and comparable to or
+    /// better than CUDA provider.
     ///
     /// For custom `TensorRT` settings, use [`with_tensorrt_config()`](Self::with_tensorrt_config).
     ///
@@ -150,10 +150,12 @@ impl ClassifierBuilder {
     ///
     /// The default configuration enables:
     /// - **FP16 precision**: 2x faster inference on GPUs with tensor cores
-    /// - **CUDA graphs**: Reduced CPU launch overhead for models with many small layers
     /// - **Engine caching**: Reduces session creation from minutes to seconds
     /// - **Timing cache**: Accelerates future builds with similar layer configurations
     /// - **Optimization level 3**: Balanced optimization (`TensorRT` default)
+    ///
+    /// **CUDA graphs are disabled by default** to avoid a known bug in ONNX Runtime 1.22.0.
+    /// See [`crate::TensorRTConfig::new()`] for details and how to enable them if needed
     ///
     /// # Example
     ///
