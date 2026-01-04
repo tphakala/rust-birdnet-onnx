@@ -173,6 +173,7 @@ jobs:
           # Get the previous tag
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
 
+          # Generate changelog
           if [ -z "$PREV_TAG" ]; then
             echo "## What's Changed" > changelog.md
             echo "" >> changelog.md
@@ -180,14 +181,15 @@ jobs:
           else
             echo "## What's Changed" > changelog.md
             echo "" >> changelog.md
-            git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges >> changelog.md || echo "- No commit messages available" >> changelog.md
+            git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges >> changelog.md 2>/dev/null || echo "- No commit messages available" >> changelog.md
           fi
 
-          # Set output for use in release step with random delimiter
-          delimiter="$(openssl rand -hex 8)"
-          echo "body<<${delimiter}" >> $GITHUB_OUTPUT
-          cat changelog.md >> $GITHUB_OUTPUT
-          echo "${delimiter}" >> $GITHUB_OUTPUT
+          # Set multiline output using EOF delimiter
+          {
+            echo 'body<<EOF'
+            cat changelog.md
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
