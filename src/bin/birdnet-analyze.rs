@@ -5,7 +5,7 @@
 
 use birdnet_onnx::{
     Classifier, ExecutionProviderInfo, ModelType, Result, available_execution_providers,
-    init_runtime,
+    find_ort_library, init_runtime,
 };
 use clap::Parser;
 use std::path::PathBuf;
@@ -131,6 +131,29 @@ const fn provider_description(provider: ExecutionProviderInfo) -> &'static str {
 
 /// List all execution providers and exit.
 fn list_providers_and_exit() -> ! {
+    // Show ONNX Runtime library path for debugging
+    if let Some(lib_path) = find_ort_library() {
+        println!("ONNX Runtime library: {}", lib_path.display());
+    } else {
+        println!("ONNX Runtime library: <using system library paths>");
+        #[cfg(target_os = "windows")]
+        {
+            println!("  Note: On Windows, this searches the PATH for onnxruntime.dll");
+            println!("  To find the current location, use: where onnxruntime.dll");
+        }
+        #[cfg(target_os = "linux")]
+        {
+            println!("  Note: On Linux, this searches paths in /etc/ld.so.conf and the LD_LIBRARY_PATH environment variable.");
+            println!("  To find the library, you can try: ldconfig -p | grep onnxruntime");
+        }
+        #[cfg(target_os = "macos")]
+        {
+            println!("  Note: On macOS, this searches standard paths and the DYLD_LIBRARY_PATH environment variable.");
+            println!("  To find the library, you can try: find /usr/local /opt -name \"libonnxruntime.dylib\" 2>/dev/null");
+        }
+    }
+    println!();
+
     let available = available_execution_providers();
 
     println!("Available execution providers:");
