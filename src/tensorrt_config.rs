@@ -125,7 +125,7 @@ impl TensorRTConfig {
     /// # CUDA Graphs
     ///
     /// CUDA graphs are **disabled by default** to avoid a known bug in ONNX Runtime 1.22.0
-    /// where graph replay fails on batch 2+ with "expected 'typeinfo_ptr' to not be null".
+    /// where graph replay fails on batch 2+ with "expected `typeinfo_ptr` to not be null".
     /// See [ONNX Runtime Issue #20050](https://github.com/microsoft/onnxruntime/issues/20050).
     ///
     /// If you need CUDA graphs for performance and your workload doesn't trigger the bug,
@@ -193,7 +193,7 @@ impl TensorRTConfig {
     /// # Warning
     ///
     /// ONNX Runtime 1.22.0 has a bug where CUDA graph replay fails on batch 2+
-    /// with "expected 'typeinfo_ptr' to not be null". Only enable if you've
+    /// with "expected `typeinfo_ptr` to not be null". Only enable if you've
     /// verified your workload doesn't trigger this bug.
     ///
     /// See: <https://github.com/microsoft/onnxruntime/issues/20050>
