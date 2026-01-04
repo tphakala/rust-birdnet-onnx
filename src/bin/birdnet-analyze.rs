@@ -15,6 +15,21 @@ use std::time::Instant;
 /// This is 2^15 (32768), used to convert i16 samples to f32 range [-1.0, 1.0].
 const I16_NORMALIZATION_FACTOR: f32 = 32768.0;
 
+/// All supported execution providers in canonical order.
+const ALL_EXECUTION_PROVIDERS: &[ExecutionProviderInfo] = &[
+    ExecutionProviderInfo::Cpu,
+    ExecutionProviderInfo::Cuda,
+    ExecutionProviderInfo::TensorRt,
+    ExecutionProviderInfo::DirectMl,
+    ExecutionProviderInfo::CoreMl,
+    ExecutionProviderInfo::Rocm,
+    ExecutionProviderInfo::OpenVino,
+    ExecutionProviderInfo::OneDnn,
+    ExecutionProviderInfo::Qnn,
+    ExecutionProviderInfo::Acl,
+    ExecutionProviderInfo::ArmNn,
+];
+
 /// Analyze WAV files for bird species using `BirdNET`/`Perch` ONNX models.
 #[derive(Parser, Debug)]
 #[command(name = "birdnet-analyze")]
@@ -81,24 +96,20 @@ const fn model_display_name(model_type: ModelType) -> &'static str {
 
 /// Parse execution provider from CLI argument.
 fn parse_provider(s: &str) -> Result<ExecutionProviderInfo> {
-    match s.to_lowercase().as_str() {
-        "cpu" => Ok(ExecutionProviderInfo::Cpu),
-        "cuda" => Ok(ExecutionProviderInfo::Cuda),
-        "tensorrt" => Ok(ExecutionProviderInfo::TensorRt),
-        "directml" => Ok(ExecutionProviderInfo::DirectMl),
-        "coreml" => Ok(ExecutionProviderInfo::CoreMl),
-        "rocm" => Ok(ExecutionProviderInfo::Rocm),
-        "openvino" => Ok(ExecutionProviderInfo::OpenVino),
-        "onednn" => Ok(ExecutionProviderInfo::OneDnn),
-        "qnn" => Ok(ExecutionProviderInfo::Qnn),
-        "acl" => Ok(ExecutionProviderInfo::Acl),
-        "armnn" => Ok(ExecutionProviderInfo::ArmNn),
-        _ => Err(birdnet_onnx::Error::ModelDetection {
-            reason: format!(
-                "unknown provider '{s}'. Valid providers: cpu, cuda, tensorrt, directml, coreml, rocm, openvino, onednn, qnn, acl, armnn"
-            ),
-        }),
-    }
+    ALL_EXECUTION_PROVIDERS
+        .iter()
+        .find(|p| p.as_str().eq_ignore_ascii_case(s))
+        .copied()
+        .ok_or_else(|| {
+            let provider_names: Vec<&str> =
+                ALL_EXECUTION_PROVIDERS.iter().map(|p| p.as_str()).collect();
+            birdnet_onnx::Error::ModelDetection {
+                reason: format!(
+                    "unknown provider '{s}'. Valid providers: {}",
+                    provider_names.join(", ")
+                ),
+            }
+        })
 }
 
 /// Get human-readable description for execution provider.
@@ -124,22 +135,7 @@ fn list_providers_and_exit() -> ! {
 
     println!("Available execution providers:");
 
-    // Check all possible providers
-    let all_providers = [
-        ExecutionProviderInfo::Cpu,
-        ExecutionProviderInfo::Cuda,
-        ExecutionProviderInfo::TensorRt,
-        ExecutionProviderInfo::DirectMl,
-        ExecutionProviderInfo::CoreMl,
-        ExecutionProviderInfo::Rocm,
-        ExecutionProviderInfo::OpenVino,
-        ExecutionProviderInfo::OneDnn,
-        ExecutionProviderInfo::Qnn,
-        ExecutionProviderInfo::Acl,
-        ExecutionProviderInfo::ArmNn,
-    ];
-
-    for provider in all_providers {
+    for &provider in ALL_EXECUTION_PROVIDERS {
         let is_available = available.contains(&provider);
         let symbol = if is_available { "✓" } else { "✗" };
         let name = provider.as_str();
