@@ -185,10 +185,10 @@ jobs:
             git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges >> changelog.md 2>/dev/null || echo "- No commit messages available" >> changelog.md
           fi
 
-          # Set multiline output using EOF delimiter
-          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          # Set multiline output using unique delimiter
+          echo "body<<CHANGELOG_EOF_DELIMITER" >> "$GITHUB_OUTPUT"
           cat changelog.md >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "CHANGELOG_EOF_DELIMITER" >> "$GITHUB_OUTPUT"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
