@@ -85,10 +85,6 @@ struct Args {
     /// Enable verbose logging for debugging
     #[arg(short, long)]
     verbose: bool,
-
-    /// Disable CUDA graphs for `TensorRT` (workaround for graph replay bugs)
-    #[arg(long)]
-    disable_cuda_graph: bool,
 }
 
 /// Parse model type from CLI argument.
@@ -369,21 +365,7 @@ fn run_with_args(args: Args) -> Result<()> {
     builder = match requested_provider {
         ExecutionProviderInfo::Cpu => builder, // CPU is default, no need to add
         ExecutionProviderInfo::Cuda => builder.with_cuda(),
-        ExecutionProviderInfo::TensorRt => {
-            if args.disable_cuda_graph {
-                // Use custom config with CUDA graphs disabled (workaround for replay bugs)
-                let trt_config = birdnet_onnx::TensorRTConfig::new().with_cuda_graph(false);
-                if args.verbose {
-                    eprintln!(
-                        "{} [DEBUG] TensorRT CUDA graph disabled (workaround mode)",
-                        timestamp()
-                    );
-                }
-                builder.with_tensorrt_config(trt_config)
-            } else {
-                builder.with_tensorrt()
-            }
-        }
+        ExecutionProviderInfo::TensorRt => builder.with_tensorrt(),
         ExecutionProviderInfo::DirectMl => builder.execution_provider(
             birdnet_onnx::ort_execution_providers::DirectMLExecutionProvider::default(),
         ),
