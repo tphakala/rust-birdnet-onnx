@@ -395,11 +395,15 @@ fn run_with_args(args: Args) -> Result<()> {
     }
 
     let elapsed = start_time.elapsed();
+    let elapsed_secs = elapsed.as_secs_f32();
+    #[allow(clippy::cast_precision_loss)]
+    let segments_per_sec = segment_count as f32 / elapsed_secs;
+    let audio_secs_per_sec = duration_secs / elapsed_secs;
+    let audio_duration = format_duration(duration_secs);
+
     println!();
     println!(
-        "{} segments analyzed in {:.1}s",
-        segment_count,
-        elapsed.as_secs_f32()
+        "{segment_count} segments of {audio_duration} audio analyzed in {elapsed_secs:.1}s ({segments_per_sec:.1} segments/s, {audio_secs_per_sec:.1}x realtime)"
     );
 
     Ok(())
@@ -511,13 +515,17 @@ fn format_time(secs: f32) -> String {
     format!("{mins:02}:{secs_part:04.1}")
 }
 
-/// Format duration as `XmYs`.
+/// Format duration as human-readable string (e.g., "45s", "3m 23s", "1h 15m 30s").
 fn format_duration(secs: f32) -> String {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let total_secs = secs as u32;
-    let mins = total_secs / 60;
+    let hours = total_secs / 3600;
+    let mins = (total_secs % 3600) / 60;
     let secs_part = total_secs % 60;
-    if mins > 0 {
+
+    if hours > 0 {
+        format!("{hours}h {mins}m {secs_part}s")
+    } else if mins > 0 {
         format!("{mins}m {secs_part}s")
     } else {
         format!("{secs_part}s")
