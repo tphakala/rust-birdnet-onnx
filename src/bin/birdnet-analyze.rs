@@ -10,6 +10,7 @@ use birdnet_onnx::{
 use clap::Parser;
 use std::path::PathBuf;
 use std::time::Instant;
+use tracing_subscriber::{EnvFilter, fmt};
 
 /// Normalization factor for 16-bit signed audio samples.
 /// This is 2^15 (32768), used to convert i16 samples to f32 range [-1.0, 1.0].
@@ -80,6 +81,14 @@ struct Args {
     /// Batch size for inference (defaults: 8 for CPU, 32 for GPU)
     #[arg(short, long)]
     batch_size: Option<usize>,
+
+    /// Enable verbose logging for debugging
+    #[arg(short, long)]
+    verbose: bool,
+
+    /// Disable CUDA graphs for `TensorRT` (workaround for graph replay bugs)
+    #[arg(long)]
+    disable_cuda_graph: bool,
 }
 
 /// Parse model type from CLI argument.
@@ -255,8 +264,36 @@ fn run_with_args(args: Args) -> Result<()> {
         std::process::exit(0);
     }
 
+    // Configure verbose logging with tracing
+    if args.verbose {
+        // Initialize tracing subscriber with timestamps for ort internal logging
+        let filter =
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("ort=debug"));
+
+        fmt()
+            .with_target(false)
+            .with_level(true)
+            .with_timer(fmt::time::SystemTime)
+            .with_env_filter(filter)
+            .init();
+
+        eprintln!(
+            "{} [DEBUG] Verbose logging enabled (RUST_LOG=ort=debug)",
+            timestamp()
+        );
+        eprintln!("{} [DEBUG] Initializing ONNX Runtime...", timestamp());
+    }
+
     // Initialize ONNX Runtime (auto-detects bundled libraries)
+    let init_start = Instant::now();
     init_runtime()?;
+    if args.verbose {
+        eprintln!(
+            "{} [DEBUG] ONNX Runtime initialized in {:?}",
+            timestamp(),
+            init_start.elapsed()
+        );
+    }
 
     // Parse and validate execution provider
     let requested_provider = parse_provider(&args.provider)?;
@@ -309,6 +346,15 @@ fn run_with_args(args: Args) -> Result<()> {
         })?;
 
     // Build classifier with selected execution provider
+    if args.verbose {
+        eprintln!(
+            "{} [DEBUG] Building classifier with {} provider...",
+            timestamp(),
+            requested_provider.as_str()
+        );
+    }
+    let build_start = Instant::now();
+
     let mut builder = Classifier::builder()
         .model_path(model_path.display().to_string())
         .labels_path(labels_path.display().to_string())
@@ -323,7 +369,21 @@ fn run_with_args(args: Args) -> Result<()> {
     builder = match requested_provider {
         ExecutionProviderInfo::Cpu => builder, // CPU is default, no need to add
         ExecutionProviderInfo::Cuda => builder.with_cuda(),
-        ExecutionProviderInfo::TensorRt => builder.with_tensorrt(),
+        ExecutionProviderInfo::TensorRt => {
+            if args.disable_cuda_graph {
+                // Use custom config with CUDA graphs disabled (workaround for replay bugs)
+                let trt_config = birdnet_onnx::TensorRTConfig::new().with_cuda_graph(false);
+                if args.verbose {
+                    eprintln!(
+                        "{} [DEBUG] TensorRT CUDA graph disabled (workaround mode)",
+                        timestamp()
+                    );
+                }
+                builder.with_tensorrt_config(trt_config)
+            } else {
+                builder.with_tensorrt()
+            }
+        }
         ExecutionProviderInfo::DirectMl => builder.execution_provider(
             birdnet_onnx::ort_execution_providers::DirectMLExecutionProvider::default(),
         ),
@@ -351,10 +411,32 @@ fn run_with_args(args: Args) -> Result<()> {
     };
 
     let classifier = builder.build()?;
+    if args.verbose {
+        eprintln!(
+            "{} [DEBUG] Classifier built in {:?}",
+            timestamp(),
+            build_start.elapsed()
+        );
+    }
     let config = classifier.config();
 
     // Read WAV file
+    if args.verbose {
+        eprintln!(
+            "{} [DEBUG] Reading WAV file: {}",
+            timestamp(),
+            audio_file.display()
+        );
+    }
+    let wav_start = Instant::now();
     let (samples, sample_rate, duration_secs) = read_wav(audio_file)?;
+    if args.verbose {
+        eprintln!(
+            "{} [DEBUG] WAV file read in {:?}",
+            timestamp(),
+            wav_start.elapsed()
+        );
+    }
 
     // Validate sample rate
     if sample_rate != config.sample_rate {
@@ -393,12 +475,32 @@ fn run_with_args(args: Args) -> Result<()> {
     println!();
 
     // Chunk audio and run inference
-    let start_time = Instant::now();
+    if args.verbose {
+        eprintln!("{} [DEBUG] Chunking audio into segments...", timestamp());
+    }
+    let chunk_start = Instant::now();
     let segments = chunk_audio(&samples, config.sample_count, args.overlap, sample_rate);
     let segment_count = segments.len();
+    if args.verbose {
+        eprintln!(
+            "{} [DEBUG] Created {} segments in {:?}",
+            timestamp(),
+            segment_count,
+            chunk_start.elapsed()
+        );
+        eprintln!(
+            "{} [DEBUG] Starting inference (batch_size={batch_size})...",
+            timestamp()
+        );
+    }
+
+    let start_time = Instant::now();
+    let mut batch_num = 0;
 
     // Process segments in batches for better GPU performance
     for batch_chunk in segments.chunks(batch_size) {
+        batch_num += 1;
+
         // Prepare batch: collect references to segment data
         let batch_segments: Vec<&[f32]> = batch_chunk
             .iter()
@@ -406,7 +508,25 @@ fn run_with_args(args: Args) -> Result<()> {
             .collect();
 
         // Run batch inference
+        if args.verbose {
+            eprintln!(
+                "{} [DEBUG] Processing batch {}/{} ({} segments)...",
+                timestamp(),
+                batch_num,
+                segment_count.div_ceil(batch_size),
+                batch_segments.len()
+            );
+        }
+        let batch_start = Instant::now();
         let results = classifier.predict_batch(&batch_segments)?;
+        if args.verbose {
+            eprintln!(
+                "{} [DEBUG] Batch {} completed in {:?}",
+                timestamp(),
+                batch_num,
+                batch_start.elapsed()
+            );
+        }
 
         // Process results with their corresponding time offsets
         for ((time_offset, _), result) in batch_chunk.iter().zip(results) {
@@ -561,4 +681,11 @@ fn format_duration(secs: f32) -> String {
     } else {
         format!("{secs_part}s")
     }
+}
+
+/// Get current timestamp in ISO 8601 format with milliseconds.
+fn timestamp() -> String {
+    let now = std::time::SystemTime::now();
+    let datetime: chrono::DateTime<chrono::Utc> = now.into();
+    datetime.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()
 }

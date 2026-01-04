@@ -24,6 +24,8 @@ csv = "1"
 ndarray = "0.16"
 clap = { version = "4", features = ["derive"] }
 hound = "3"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
+chrono = "0.4"
 
 [dev-dependencies]
 tempfile = "3"
@@ -75,3 +77,6 @@ too_many_lines = "allow"
 must_use_candidate = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
+
+# Cargo lints - allow multiple crate versions (comes from dependencies)
+multiple_crate_versions = "allow"
