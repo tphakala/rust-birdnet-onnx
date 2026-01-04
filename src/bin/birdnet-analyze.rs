@@ -185,6 +185,7 @@ fn main() {
     }
 }
 
+#[allow(clippy::needless_pass_by_value)] // Args is consumed throughout this function
 fn run_with_args(args: Args) -> Result<()> {
     // Handle --list-providers flag
     if args.list_providers {
