@@ -30,6 +30,12 @@ const ALL_EXECUTION_PROVIDERS: &[ExecutionProviderInfo] = &[
     ExecutionProviderInfo::ArmNn,
 ];
 
+/// Default batch size for CPU inference (conservative for cache efficiency).
+const DEFAULT_CPU_BATCH_SIZE: usize = 8;
+
+/// Default batch size for GPU inference (safe for 4GB+ VRAM, ~38% usage).
+const DEFAULT_GPU_BATCH_SIZE: usize = 32;
+
 /// Analyze WAV files for bird species using `BirdNET`/`Perch` ONNX models.
 #[derive(Parser, Debug)]
 #[command(name = "birdnet-analyze")]
@@ -70,6 +76,10 @@ struct Args {
     /// Execution provider to use (cpu, cuda, tensorrt, directml, coreml, rocm, openvino, onednn, qnn, acl, armnn)
     #[arg(long, default_value = "cpu")]
     provider: String,
+
+    /// Batch size for inference (defaults: 8 for CPU, 32 for GPU)
+    #[arg(short, long)]
+    batch_size: Option<usize>,
 }
 
 /// Parse model type from CLI argument.
@@ -266,6 +276,15 @@ fn run_with_args(args: Args) -> Result<()> {
         });
     }
 
+    // Determine batch size based on provider
+    let batch_size = args.batch_size.unwrap_or_else(|| {
+        if requested_provider == ExecutionProviderInfo::Cpu {
+            DEFAULT_CPU_BATCH_SIZE
+        } else {
+            DEFAULT_GPU_BATCH_SIZE
+        }
+    });
+
     // Parse model type override if provided
     let model_type_override = parse_model_type(args.model_type.as_deref())?;
 
@@ -360,6 +379,7 @@ fn run_with_args(args: Args) -> Result<()> {
     // Print header
     let model_name = model_display_name(config.model_type);
     println!("Using execution provider: {}", requested_provider.as_str());
+    println!("Batch size: {batch_size}");
     println!(
         "Analyzing: {} ({}, {} Hz)",
         audio_file.display(),
@@ -377,21 +397,32 @@ fn run_with_args(args: Args) -> Result<()> {
     let segments = chunk_audio(&samples, config.sample_count, args.overlap, sample_rate);
     let segment_count = segments.len();
 
-    for (time_offset, segment) in segments {
-        let result = classifier.predict(&segment)?;
-
-        if result.predictions.is_empty() {
-            continue;
-        }
-
-        // Format predictions
-        let preds: Vec<String> = result
-            .predictions
+    // Process segments in batches for better GPU performance
+    for batch_chunk in segments.chunks(batch_size) {
+        // Prepare batch: collect references to segment data
+        let batch_segments: Vec<&[f32]> = batch_chunk
             .iter()
-            .map(|p| format!("{} ({:.1}%)", p.species, p.confidence * 100.0))
+            .map(|(_, segment)| segment.as_slice())
             .collect();
 
-        println!("{}  {}", format_time(time_offset), preds.join(", "));
+        // Run batch inference
+        let results = classifier.predict_batch(&batch_segments)?;
+
+        // Process results with their corresponding time offsets
+        for ((time_offset, _), result) in batch_chunk.iter().zip(results) {
+            if result.predictions.is_empty() {
+                continue;
+            }
+
+            // Format predictions
+            let preds: Vec<String> = result
+                .predictions
+                .iter()
+                .map(|p| format!("{} ({:.1}%)", p.species, p.confidence * 100.0))
+                .collect();
+
+            println!("{}  {}", format_time(*time_offset), preds.join(", "));
+        }
     }
 
     let elapsed = start_time.elapsed();
