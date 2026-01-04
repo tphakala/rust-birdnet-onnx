@@ -159,15 +159,33 @@ fn list_providers_and_exit() -> ! {
 }
 
 fn main() {
-    if let Err(e) = run() {
+    // Parse args with custom error handling for better help messages
+    let args = match Args::try_parse() {
+        Ok(args) => args,
+        Err(e) => {
+            // If parsing failed and no args were provided, show helpful message
+            if std::env::args().len() == 1 {
+                eprintln!("Analyze WAV files for bird species using BirdNET/Perch ONNX models.\n");
+                eprintln!("Usage:");
+                eprintln!("  # Analyze audio file:");
+                eprintln!("  birdnet-analyze --model <MODEL> --labels <LABELS> <AUDIO_FILE>\n");
+                eprintln!("  # List available execution providers:");
+                eprintln!("  birdnet-analyze --list-providers\n");
+                eprintln!("For more information, try '--help'.");
+                std::process::exit(2);
+            }
+            // Otherwise show the default clap error
+            e.exit();
+        }
+    };
+
+    if let Err(e) = run_with_args(args) {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
 }
 
-fn run() -> Result<()> {
-    let args = Args::parse();
-
+fn run_with_args(args: Args) -> Result<()> {
     // Handle --list-providers flag
     if args.list_providers {
         list_providers_and_exit();
