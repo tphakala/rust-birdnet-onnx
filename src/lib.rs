@@ -50,7 +50,7 @@ pub use execution_providers::available_execution_providers;
 pub use rangefilter::{
     RangeFilter, RangeFilterBuilder, calculate_week, validate_coordinates, validate_date,
 };
-pub use runtime::init_runtime;
+pub use runtime::{find_ort_library, init_runtime};
 pub use tensorrt_config::TensorRTConfig;
 pub use types::{
     ExecutionProviderInfo, LabelFormat, LocationScore, ModelConfig, ModelType, Prediction,
