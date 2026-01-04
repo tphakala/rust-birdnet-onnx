@@ -169,30 +169,23 @@ jobs:
           path: artifacts
 
       - name: Generate changelog
-        id: changelog
         run: |
           # Get the previous tag
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
 
-          # Generate changelog
-          if [ -z "$PREV_TAG" ]; then
-            echo "## What's Changed" > changelog.md
-            echo "" >> changelog.md
-            echo "Initial release" >> changelog.md
-          else
-            echo "## What's Changed" > changelog.md
-            echo "" >> changelog.md
-            git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges >> changelog.md 2>/dev/null || echo "- No commit messages available" >> changelog.md
-          fi
+          # Generate changelog and save to file
+          echo "## What's Changed" > RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
 
-          # Set multiline output using unique delimiter
-          echo "body<<CHANGELOG_EOF_DELIMITER" >> "$GITHUB_OUTPUT"
-          cat changelog.md >> "$GITHUB_OUTPUT"
-          echo "CHANGELOG_EOF_DELIMITER" >> "$GITHUB_OUTPUT"
+          if [ -z "$PREV_TAG" ]; then
+            echo "Initial release" >> RELEASE_NOTES.md
+          else
+            git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges >> RELEASE_NOTES.md 2>/dev/null || echo "- No commit messages available" >> RELEASE_NOTES.md
+          fi
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          body: ${{ steps.changelog.outputs.body }}
+          body_path: RELEASE_NOTES.md
           files: artifacts/**/*
-          generate_release_notes: false
+          fail_on_unmatched_files: true
