@@ -30,6 +30,12 @@ const ALL_EXECUTION_PROVIDERS: &[ExecutionProviderInfo] = &[
     ExecutionProviderInfo::ArmNn,
 ];
 
+/// Default batch size for CPU inference (conservative for cache efficiency).
+const DEFAULT_CPU_BATCH_SIZE: usize = 8;
+
+/// Default batch size for GPU inference (safe for 4GB+ VRAM, ~38% usage).
+const DEFAULT_GPU_BATCH_SIZE: usize = 32;
+
 /// Analyze WAV files for bird species using `BirdNET`/`Perch` ONNX models.
 #[derive(Parser, Debug)]
 #[command(name = "birdnet-analyze")]
@@ -270,12 +276,12 @@ fn run_with_args(args: Args) -> Result<()> {
         });
     }
 
-    // Determine batch size: default to 8 for CPU, 32 for GPU
+    // Determine batch size based on provider
     let batch_size = args.batch_size.unwrap_or_else(|| {
         if requested_provider == ExecutionProviderInfo::Cpu {
-            8
+            DEFAULT_CPU_BATCH_SIZE
         } else {
-            32
+            DEFAULT_GPU_BATCH_SIZE
         }
     });
 
