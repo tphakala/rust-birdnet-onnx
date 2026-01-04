@@ -3,7 +3,10 @@
 #![allow(clippy::print_stdout)] // CLI tool needs stdout
 #![allow(clippy::print_stderr)] // CLI tool needs stderr
 
-use birdnet_onnx::{Classifier, ModelType, Result, init_runtime};
+use birdnet_onnx::{
+    Classifier, ExecutionProviderInfo, ModelType, Result, available_execution_providers,
+    init_runtime,
+};
 use clap::Parser;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -12,21 +15,37 @@ use std::time::Instant;
 /// This is 2^15 (32768), used to convert i16 samples to f32 range [-1.0, 1.0].
 const I16_NORMALIZATION_FACTOR: f32 = 32768.0;
 
+/// All supported execution providers in canonical order.
+const ALL_EXECUTION_PROVIDERS: &[ExecutionProviderInfo] = &[
+    ExecutionProviderInfo::Cpu,
+    ExecutionProviderInfo::Cuda,
+    ExecutionProviderInfo::TensorRt,
+    ExecutionProviderInfo::DirectMl,
+    ExecutionProviderInfo::CoreMl,
+    ExecutionProviderInfo::Rocm,
+    ExecutionProviderInfo::OpenVino,
+    ExecutionProviderInfo::OneDnn,
+    ExecutionProviderInfo::Qnn,
+    ExecutionProviderInfo::Acl,
+    ExecutionProviderInfo::ArmNn,
+];
+
 /// Analyze WAV files for bird species using `BirdNET`/`Perch` ONNX models.
 #[derive(Parser, Debug)]
 #[command(name = "birdnet-analyze")]
 #[command(about = "Analyze WAV files for bird species")]
 struct Args {
     /// Input WAV file (16-bit mono, matching model sample rate)
-    audio_file: PathBuf,
+    #[arg(required_unless_present = "list_providers")]
+    audio_file: Option<PathBuf>,
 
     /// Path to ONNX model file
-    #[arg(short, long)]
-    model: PathBuf,
+    #[arg(short, long, required_unless_present = "list_providers")]
+    model: Option<PathBuf>,
 
     /// Path to labels file
-    #[arg(short, long)]
-    labels: PathBuf,
+    #[arg(short, long, required_unless_present = "list_providers")]
+    labels: Option<PathBuf>,
 
     /// Overlap between segments in seconds
     #[arg(short, long, default_value = "0.0")]
@@ -43,6 +62,14 @@ struct Args {
     /// Override model type detection (v24, v30, perch)
     #[arg(long)]
     model_type: Option<String>,
+
+    /// List available execution providers and exit
+    #[arg(long)]
+    list_providers: bool,
+
+    /// Execution provider to use (cpu, cuda, tensorrt, directml, coreml, rocm, openvino, onednn, qnn, acl, armnn)
+    #[arg(long, default_value = "cpu")]
+    provider: String,
 }
 
 /// Parse model type from CLI argument.
@@ -67,26 +94,148 @@ const fn model_display_name(model_type: ModelType) -> &'static str {
     }
 }
 
+/// Parse execution provider from CLI argument.
+fn parse_provider(s: &str) -> Result<ExecutionProviderInfo> {
+    ALL_EXECUTION_PROVIDERS
+        .iter()
+        .find(|p| p.as_str().eq_ignore_ascii_case(s))
+        .copied()
+        .ok_or_else(|| {
+            let provider_names: Vec<&str> =
+                ALL_EXECUTION_PROVIDERS.iter().map(|p| p.as_str()).collect();
+            birdnet_onnx::Error::ModelDetection {
+                reason: format!(
+                    "unknown provider '{s}'. Valid providers: {}",
+                    provider_names.join(", ")
+                ),
+            }
+        })
+}
+
+/// Get human-readable description for execution provider.
+const fn provider_description(provider: ExecutionProviderInfo) -> &'static str {
+    match provider {
+        ExecutionProviderInfo::Cpu => "Always available",
+        ExecutionProviderInfo::Cuda => "NVIDIA GPU acceleration",
+        ExecutionProviderInfo::TensorRt => "NVIDIA GPU with optimization",
+        ExecutionProviderInfo::DirectMl => "DirectX 12 GPU acceleration (Windows)",
+        ExecutionProviderInfo::CoreMl => "Apple Neural Engine acceleration (macOS/iOS)",
+        ExecutionProviderInfo::Rocm => "AMD GPU acceleration",
+        ExecutionProviderInfo::OpenVino => "Intel hardware acceleration",
+        ExecutionProviderInfo::OneDnn => "Intel CPU optimization",
+        ExecutionProviderInfo::Qnn => "Qualcomm NPU acceleration",
+        ExecutionProviderInfo::Acl => "Arm CPU optimization",
+        ExecutionProviderInfo::ArmNn => "Arm NPU acceleration",
+    }
+}
+
+/// List all execution providers and exit.
+fn list_providers_and_exit() -> ! {
+    let available = available_execution_providers();
+
+    println!("Available execution providers:");
+
+    for &provider in ALL_EXECUTION_PROVIDERS {
+        let is_available = available.contains(&provider);
+        let symbol = if is_available { "✓" } else { "✗" };
+        let name = provider.as_str();
+        let description = provider_description(provider);
+
+        if is_available {
+            println!("  {symbol} {name} - {description}");
+        } else {
+            println!("  {symbol} {name} - {description} (not available)");
+            println!(
+                "    Reason: Provider not available (may require library installation or ONNX Runtime built with provider support)"
+            );
+        }
+    }
+
+    std::process::exit(0);
+}
+
 fn main() {
-    if let Err(e) = run() {
+    // Parse args with custom error handling for better help messages
+    let args = match Args::try_parse() {
+        Ok(args) => args,
+        Err(e) => {
+            // If parsing failed and no args were provided, show helpful message
+            if std::env::args().len() == 1 {
+                eprintln!("Analyze WAV files for bird species using BirdNET/Perch ONNX models.\n");
+                eprintln!("Usage:");
+                eprintln!("  # Analyze audio file:");
+                eprintln!("  birdnet-analyze --model <MODEL> --labels <LABELS> <AUDIO_FILE>\n");
+                eprintln!("  # List available execution providers:");
+                eprintln!("  birdnet-analyze --list-providers\n");
+                eprintln!("For more information, try '--help'.");
+                std::process::exit(2);
+            }
+            // Otherwise show the default clap error
+            e.exit();
+        }
+    };
+
+    if let Err(e) = run_with_args(args) {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
 }
 
-fn run() -> Result<()> {
-    let args = Args::parse();
+#[allow(clippy::needless_pass_by_value)] // Args is consumed throughout this function
+fn run_with_args(args: Args) -> Result<()> {
+    // Handle --list-providers flag
+    if args.list_providers {
+        list_providers_and_exit();
+    }
 
     // Initialize ONNX Runtime (auto-detects bundled libraries)
     init_runtime()?;
 
+    // Parse and validate execution provider
+    let requested_provider = parse_provider(&args.provider)?;
+    let available_providers = available_execution_providers();
+
+    if !available_providers.contains(&requested_provider) {
+        let available_names: Vec<String> = available_providers
+            .iter()
+            .map(|p| p.as_str().to_string())
+            .collect();
+        return Err(birdnet_onnx::Error::ModelDetection {
+            reason: format!(
+                "{} provider not available\nAvailable providers: {}",
+                requested_provider.as_str(),
+                available_names.join(", ")
+            ),
+        });
+    }
+
     // Parse model type override if provided
     let model_type_override = parse_model_type(args.model_type.as_deref())?;
 
-    // Build classifier
+    // Unwrap required arguments (safe because of required_unless_present)
+    let audio_file =
+        args.audio_file
+            .as_ref()
+            .ok_or_else(|| birdnet_onnx::Error::ModelDetection {
+                reason: "audio file is required".to_string(),
+            })?;
+    let model_path = args
+        .model
+        .as_ref()
+        .ok_or_else(|| birdnet_onnx::Error::ModelDetection {
+            reason: "model path is required".to_string(),
+        })?;
+    let labels_path = args
+        .labels
+        .as_ref()
+        .ok_or_else(|| birdnet_onnx::Error::ModelDetection {
+            reason: "labels path is required".to_string(),
+        })?;
+
+    // Build classifier with selected execution provider
     let mut builder = Classifier::builder()
-        .model_path(args.model.display().to_string())
-        .labels_path(args.labels.display().to_string())
+        .model_path(model_path.display().to_string())
+        .labels_path(labels_path.display().to_string())
         .top_k(args.top_k)
         .min_confidence(args.min_confidence);
 
@@ -94,11 +243,42 @@ fn run() -> Result<()> {
         builder = builder.model_type(mt);
     }
 
+    // Configure execution provider
+    builder = match requested_provider {
+        ExecutionProviderInfo::Cpu => builder, // CPU is default, no need to add
+        ExecutionProviderInfo::Cuda => builder.with_cuda(),
+        ExecutionProviderInfo::TensorRt => builder.with_tensorrt(),
+        ExecutionProviderInfo::DirectMl => builder.execution_provider(
+            birdnet_onnx::ort_execution_providers::DirectMLExecutionProvider::default(),
+        ),
+        ExecutionProviderInfo::CoreMl => builder.execution_provider(
+            birdnet_onnx::ort_execution_providers::CoreMLExecutionProvider::default(),
+        ),
+        ExecutionProviderInfo::Rocm => builder.execution_provider(
+            birdnet_onnx::ort_execution_providers::ROCmExecutionProvider::default(),
+        ),
+        ExecutionProviderInfo::OpenVino => builder.execution_provider(
+            birdnet_onnx::ort_execution_providers::OpenVINOExecutionProvider::default(),
+        ),
+        ExecutionProviderInfo::OneDnn => builder.execution_provider(
+            birdnet_onnx::ort_execution_providers::OneDNNExecutionProvider::default(),
+        ),
+        ExecutionProviderInfo::Qnn => builder.execution_provider(
+            birdnet_onnx::ort_execution_providers::QNNExecutionProvider::default(),
+        ),
+        ExecutionProviderInfo::Acl => builder.execution_provider(
+            birdnet_onnx::ort_execution_providers::ACLExecutionProvider::default(),
+        ),
+        ExecutionProviderInfo::ArmNn => builder.execution_provider(
+            birdnet_onnx::ort_execution_providers::ArmNNExecutionProvider::default(),
+        ),
+    };
+
     let classifier = builder.build()?;
     let config = classifier.config();
 
     // Read WAV file
-    let (samples, sample_rate, duration_secs) = read_wav(&args.audio_file)?;
+    let (samples, sample_rate, duration_secs) = read_wav(audio_file)?;
 
     // Validate sample rate
     if sample_rate != config.sample_rate {
@@ -122,9 +302,10 @@ fn run() -> Result<()> {
 
     // Print header
     let model_name = model_display_name(config.model_type);
+    println!("Using execution provider: {}", requested_provider.as_str());
     println!(
         "Analyzing: {} ({}, {} Hz)",
-        args.audio_file.display(),
+        audio_file.display(),
         format_duration(duration_secs),
         sample_rate
     );
