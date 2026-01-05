@@ -144,6 +144,20 @@ impl BatchInferenceContext {
         self.sample_count
     }
 
+    /// Returns the pre-allocated input buffer capacity in samples.
+    ///
+    /// This buffer is reused across batch inference calls to avoid heap allocations.
+    #[must_use]
+    pub const fn input_buffer_capacity(&self) -> usize {
+        self.input_buffer.len()
+    }
+
+    /// Returns the pre-allocated input buffer capacity in bytes.
+    #[must_use]
+    pub const fn input_buffer_bytes(&self) -> usize {
+        self.input_buffer.len() * std::mem::size_of::<f32>()
+    }
+
     /// Returns the model type this context was created for.
     #[must_use]
     pub const fn model_type(&self) -> ModelType {

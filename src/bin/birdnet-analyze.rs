@@ -456,10 +456,14 @@ fn run_with_args(args: Args) -> Result<()> {
         match classifier.create_batch_context(batch_size) {
             Ok(ctx) => {
                 if args.verbose {
+                    let buffer_bytes = ctx.input_buffer_bytes();
+                    #[allow(clippy::cast_precision_loss)]
+                    let buffer_mb = buffer_bytes as f64 / (1024.0 * 1024.0);
                     eprintln!(
-                        "{} [DEBUG] Created IoBinding batch context (max_batch_size={})",
+                        "{} [DEBUG] Created IoBinding batch context (max_batch_size={}, input_buffer={:.1}MB pre-allocated)",
                         timestamp(),
-                        batch_size
+                        batch_size,
+                        buffer_mb
                     );
                 }
                 Some(ctx)
@@ -553,13 +557,24 @@ fn run_with_args(args: Args) -> Result<()> {
 
         // Run batch inference
         if args.verbose {
-            eprintln!(
-                "{} [DEBUG] Processing batch {}/{} ({} segments)...",
-                timestamp(),
-                batch_num,
-                segment_count.div_ceil(batch_size),
-                batch_segments.len()
-            );
+            let total_batches = segment_count.div_ceil(batch_size);
+            if batch_context.is_some() {
+                eprintln!(
+                    "{} [DEBUG] Processing batch {}/{} ({} segments, reusing pre-allocated input buffer)...",
+                    timestamp(),
+                    batch_num,
+                    total_batches,
+                    batch_segments.len()
+                );
+            } else {
+                eprintln!(
+                    "{} [DEBUG] Processing batch {}/{} ({} segments)...",
+                    timestamp(),
+                    batch_num,
+                    total_batches,
+                    batch_segments.len()
+                );
+            }
         }
         let batch_start = Instant::now();
         let inference_options = if args.timeout > 0 {
