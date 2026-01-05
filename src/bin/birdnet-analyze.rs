@@ -9,7 +9,7 @@ use birdnet_onnx::{
 };
 use clap::Parser;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tracing_subscriber::{EnvFilter, fmt};
 
 /// Normalization factor for 16-bit signed audio samples.
@@ -81,6 +81,10 @@ struct Args {
     /// Batch size for inference (defaults: 8 for CPU, 32 for GPU)
     #[arg(short, long)]
     batch_size: Option<usize>,
+
+    /// Timeout per batch in seconds (0 = no timeout)
+    #[arg(short, long, default_value = "1")]
+    timeout: u64,
 
     /// Enable verbose logging for debugging
     #[arg(short, long)]
@@ -500,7 +504,12 @@ fn run_with_args(args: Args) -> Result<()> {
             );
         }
         let batch_start = Instant::now();
-        let results = classifier.predict_batch(&batch_segments, &InferenceOptions::default())?;
+        let inference_options = if args.timeout > 0 {
+            InferenceOptions::timeout(Duration::from_secs(args.timeout))
+        } else {
+            InferenceOptions::default()
+        };
+        let results = classifier.predict_batch(&batch_segments, &inference_options)?;
         if args.verbose {
             eprintln!(
                 "{} [DEBUG] Batch {} completed in {:?}",
