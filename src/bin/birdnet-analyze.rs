@@ -4,8 +4,8 @@
 #![allow(clippy::print_stderr)] // CLI tool needs stderr
 
 use birdnet_onnx::{
-    CancellationToken, Classifier, ExecutionProviderInfo, InferenceOptions, ModelType, Result,
-    available_execution_providers, find_ort_library, init_runtime,
+    BatchInferenceContext, CancellationToken, Classifier, ExecutionProviderInfo, InferenceOptions,
+    ModelType, Result, available_execution_providers, find_ort_library, init_runtime,
 };
 use clap::Parser;
 use std::path::PathBuf;
@@ -446,10 +446,44 @@ fn run_with_args(args: Args) -> Result<()> {
         });
     }
 
+    // Create batch context for GPU providers (enables memory reuse via IoBinding)
+    // Falls back to regular predict_batch for CPU or unsupported models (PerchV2)
+    let mut batch_context: Option<BatchInferenceContext> = if requested_provider
+        == ExecutionProviderInfo::Cpu
+    {
+        None
+    } else {
+        match classifier.create_batch_context(batch_size) {
+            Ok(ctx) => {
+                if args.verbose {
+                    eprintln!(
+                        "{} [DEBUG] Created IoBinding batch context (max_batch_size={})",
+                        timestamp(),
+                        batch_size
+                    );
+                }
+                Some(ctx)
+            }
+            Err(e) => {
+                if args.verbose {
+                    eprintln!(
+                        "{} [DEBUG] IoBinding not available: {e}, using standard batch inference",
+                        timestamp()
+                    );
+                }
+                None
+            }
+        }
+    };
+
     // Print header
     let model_name = model_display_name(config.model_type);
     println!("Using execution provider: {}", requested_provider.as_str());
-    println!("Batch size: {batch_size}");
+    if batch_context.is_some() {
+        println!("Batch size: {batch_size} (IoBinding enabled)");
+    } else {
+        println!("Batch size: {batch_size}");
+    }
     println!(
         "Analyzing: {} ({}, {} Hz)",
         audio_file.display(),
@@ -534,7 +568,13 @@ fn run_with_args(args: Args) -> Result<()> {
         } else {
             InferenceOptions::new().with_cancellation_token(cancel_token.clone())
         };
-        let results = classifier.predict_batch(&batch_segments, &inference_options)?;
+
+        // Use IoBinding context if available, otherwise fall back to standard batch inference
+        let results = if let Some(ref mut ctx) = batch_context {
+            classifier.predict_batch_with_context(ctx, &batch_segments, &inference_options)?
+        } else {
+            classifier.predict_batch(&batch_segments, &inference_options)?
+        };
         if args.verbose {
             eprintln!(
                 "{} [DEBUG] Batch {} completed in {:?}",
