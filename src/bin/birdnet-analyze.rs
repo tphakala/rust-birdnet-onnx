@@ -4,12 +4,14 @@
 #![allow(clippy::print_stderr)] // CLI tool needs stderr
 
 use birdnet_onnx::{
-    Classifier, ExecutionProviderInfo, ModelType, Result, available_execution_providers,
-    find_ort_library, init_runtime,
+    CancellationToken, Classifier, ExecutionProviderInfo, InferenceOptions, ModelType, Result,
+    available_execution_providers, find_ort_library, init_runtime,
 };
 use clap::Parser;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 use tracing_subscriber::{EnvFilter, fmt};
 
 /// Normalization factor for 16-bit signed audio samples.
@@ -81,6 +83,10 @@ struct Args {
     /// Batch size for inference (defaults: 8 for CPU, 32 for GPU)
     #[arg(short, long)]
     batch_size: Option<usize>,
+
+    /// Timeout per batch in seconds (0 = no timeout)
+    #[arg(short, long, default_value = "1")]
+    timeout: u64,
 
     /// Enable verbose logging for debugging
     #[arg(short, long)]
@@ -476,11 +482,33 @@ fn run_with_args(args: Args) -> Result<()> {
         );
     }
 
+    // Set up Ctrl+C handler for graceful cancellation
+    let cancel_token = CancellationToken::new();
+    let cancel_token_handler = cancel_token.clone();
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let cancelled_handler = Arc::clone(&cancelled);
+
+    ctrlc::set_handler(move || {
+        if cancelled_handler.swap(true, Ordering::SeqCst) {
+            // Second Ctrl+C - force exit
+            eprintln!("\nForce exiting...");
+            std::process::exit(1);
+        }
+        eprintln!("\nCancelling... (press Ctrl+C again to force exit)");
+        cancel_token_handler.cancel();
+    })
+    .ok(); // Ignore error if handler already set
+
     let start_time = Instant::now();
     let mut batch_num = 0;
 
     // Process segments in batches for better GPU performance
     for batch_chunk in segments.chunks(batch_size) {
+        // Check if cancelled before starting batch
+        if cancelled.load(Ordering::SeqCst) {
+            eprintln!("Processing cancelled by user");
+            break;
+        }
         batch_num += 1;
 
         // Prepare batch: collect references to segment data
@@ -500,7 +528,13 @@ fn run_with_args(args: Args) -> Result<()> {
             );
         }
         let batch_start = Instant::now();
-        let results = classifier.predict_batch(&batch_segments)?;
+        let inference_options = if args.timeout > 0 {
+            InferenceOptions::timeout(Duration::from_secs(args.timeout))
+                .with_cancellation_token(cancel_token.clone())
+        } else {
+            InferenceOptions::new().with_cancellation_token(cancel_token.clone())
+        };
+        let results = classifier.predict_batch(&batch_segments, &inference_options)?;
         if args.verbose {
             eprintln!(
                 "{} [DEBUG] Batch {} completed in {:?}",

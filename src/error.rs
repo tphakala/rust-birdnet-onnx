@@ -1,3 +1,4 @@
+use std::time::Duration;
 use thiserror::Error;
 
 /// Errors that can occur during classifier operations.
@@ -93,6 +94,17 @@ pub enum Error {
     /// Range filter inference failed.
     #[error("range filter inference failed: {0}")]
     RangeFilterInference(String),
+
+    /// Inference timed out.
+    #[error("inference timed out after {duration:?}")]
+    Timeout {
+        /// The timeout duration that was exceeded.
+        duration: Duration,
+    },
+
+    /// Inference was cancelled via cancellation token.
+    #[error("inference was cancelled")]
+    Cancelled,
 
     /// Failed to initialize ONNX Runtime.
     #[error("failed to initialize ONNX Runtime: {0}")]
@@ -221,5 +233,19 @@ mod tests {
             err.to_string(),
             "range filter inference failed: model invoke failed"
         );
+    }
+
+    #[test]
+    fn test_timeout_error_display() {
+        let err = Error::Timeout {
+            duration: Duration::from_secs(30),
+        };
+        assert_eq!(err.to_string(), "inference timed out after 30s");
+    }
+
+    #[test]
+    fn test_cancelled_error_display() {
+        let err = Error::Cancelled;
+        assert_eq!(err.to_string(), "inference was cancelled");
     }
 }

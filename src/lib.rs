@@ -11,7 +11,8 @@
 //! ## Example
 //!
 //! ```ignore
-//! use birdnet_onnx::Classifier;
+//! use birdnet_onnx::{Classifier, InferenceOptions};
+//! use std::time::Duration;
 //!
 //! let classifier = Classifier::builder()
 //!     .model_path("model.onnx")
@@ -19,7 +20,10 @@
 //!     .with_cuda()
 //!     .build()?;
 //!
-//! let result = classifier.predict(&audio_segment)?;
+//! let result = classifier.predict(
+//!     &audio_segment,
+//!     InferenceOptions::timeout(Duration::from_secs(30)),
+//! )?;
 //! for pred in &result.predictions {
 //!     println!("{}: {:.1}%", pred.species, pred.confidence * 100.0);
 //! }
@@ -35,6 +39,7 @@ mod classifier;
 mod detection;
 mod error;
 pub mod execution_providers;
+mod inference_options;
 mod labels;
 mod postprocess;
 mod rangefilter;
@@ -47,6 +52,7 @@ mod types;
 pub use classifier::{Classifier, ClassifierBuilder};
 pub use error::{Error, Result};
 pub use execution_providers::available_execution_providers;
+pub use inference_options::{CancellationToken, InferenceOptions};
 pub use rangefilter::{
     RangeFilter, RangeFilterBuilder, calculate_week, validate_coordinates, validate_date,
 };
