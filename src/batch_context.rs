@@ -231,8 +231,11 @@ impl BatchInferenceContext {
     pub(crate) fn bind_outputs_to_device(&mut self) -> Result<()> {
         use ort::memory::{AllocationDevice, AllocatorType, MemoryInfo, MemoryType};
 
+        // Use CPU memory for outputs so they can be read with try_extract_tensor.
+        // IoBinding still provides memory reuse benefits - the allocator reuses
+        // the same CPU buffers across inference calls.
         let mem_info = MemoryInfo::new(
-            AllocationDevice::CUDA,
+            AllocationDevice::CPU,
             0,
             AllocatorType::Device,
             MemoryType::Default,
