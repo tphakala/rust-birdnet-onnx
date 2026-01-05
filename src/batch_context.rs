@@ -232,7 +232,7 @@ impl BatchInferenceContext {
         use ort::memory::{AllocationDevice, AllocatorType, MemoryInfo, MemoryType};
 
         let mem_info = MemoryInfo::new(
-            AllocationDevice::CPU,
+            AllocationDevice::CUDA,
             0,
             AllocatorType::Device,
             MemoryType::Default,
@@ -290,47 +290,50 @@ impl BatchInferenceContext {
     ) -> Result<(Option<Vec<f32>>, Vec<f32>)> {
         match self.model_type {
             ModelType::BirdNetV24 => {
-                let logits = Self::extract_tensor_data(outputs, 0, batch_size * self.num_species)?;
+                let logits =
+                    Self::extract_tensor_data(outputs, "output", batch_size * self.num_species)?;
                 Ok((None, logits))
             }
             ModelType::BirdNetV30 => {
                 let embedding_dim = self.embedding_dim.ok_or_else(|| {
                     Error::Inference("embedding_dim required for BirdNetV30".into())
                 })?;
-                let embeddings = Self::extract_tensor_data(outputs, 0, batch_size * embedding_dim)?;
-                let logits = Self::extract_tensor_data(outputs, 1, batch_size * self.num_species)?;
+                let embeddings =
+                    Self::extract_tensor_data(outputs, "output_0", batch_size * embedding_dim)?;
+                let logits =
+                    Self::extract_tensor_data(outputs, "output_1", batch_size * self.num_species)?;
                 Ok((Some(embeddings), logits))
             }
             ModelType::PerchV2 => Err(Error::Inference("PerchV2 not supported".into())),
         }
     }
 
-    /// Extract tensor data from outputs by index.
+    /// Extract tensor data from outputs by name.
     fn extract_tensor_data(
         outputs: &ort::session::SessionOutputs<'_>,
-        index: usize,
+        name: &str,
         expected_len: usize,
     ) -> Result<Vec<f32>> {
-        let output_names: Vec<_> = outputs.keys().collect();
-        let name = output_names
-            .get(index)
-            .ok_or_else(|| Error::Inference(format!("missing output tensor at index {index}")))?;
-
         let tensor = outputs
-            .get(*name)
+            .get(name)
             .ok_or_else(|| Error::Inference(format!("missing output tensor '{name}'")))?;
 
         let (_, data) = tensor
             .try_extract_tensor::<f32>()
             .map_err(|e| Error::Inference(e.to_string()))?;
 
-        // Take only the data for actual batch size (may be smaller than max)
+        // Convert to vec for processing
         let data_vec = data.to_vec();
-        if data_vec.len() >= expected_len {
-            Ok(data_vec[..expected_len].to_vec())
-        } else {
-            Ok(data_vec)
+
+        if data_vec.len() < expected_len {
+            return Err(Error::Inference(format!(
+                "output tensor '{name}' too short: expected at least {expected_len}, got {}",
+                data_vec.len()
+            )));
         }
+
+        // Take only the data for actual batch size (may be smaller than max)
+        Ok(data_vec[..expected_len].to_vec())
     }
 }
 
