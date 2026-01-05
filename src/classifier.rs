@@ -156,19 +156,8 @@ impl ClassifierBuilder {
     /// # Ok::<(), birdnet_onnx::Error>(())
     /// ```
     #[must_use]
-    pub fn with_cuda(mut self) -> Self {
-        use ort::execution_providers::CUDAExecutionProvider;
-
-        let config = crate::cuda_config::CUDAConfig::new();
-        let provider = config.apply_to(CUDAExecutionProvider::default());
-
-        self.execution_providers.push(provider.into());
-
-        if self.requested_provider == ExecutionProviderInfo::Cpu {
-            self.requested_provider = ExecutionProviderInfo::Cuda;
-        }
-
-        self
+    pub fn with_cuda(self) -> Self {
+        self.with_cuda_config(crate::cuda_config::CUDAConfig::new())
     }
 
     /// Configure CUDA with custom settings
@@ -243,19 +232,8 @@ impl ClassifierBuilder {
     /// # Ok::<(), birdnet_onnx::Error>(())
     /// ```
     #[must_use]
-    pub fn with_tensorrt(mut self) -> Self {
-        use ort::execution_providers::TensorRTExecutionProvider;
-
-        let config = crate::tensorrt_config::TensorRTConfig::new();
-        let provider = config.apply_to(TensorRTExecutionProvider::default());
-
-        self.execution_providers.push(provider.into());
-
-        if self.requested_provider == ExecutionProviderInfo::Cpu {
-            self.requested_provider = ExecutionProviderInfo::TensorRt;
-        }
-
-        self
+    pub fn with_tensorrt(self) -> Self {
+        self.with_tensorrt_config(crate::tensorrt_config::TensorRTConfig::new())
     }
 
     /// Configure `TensorRT` with custom settings
