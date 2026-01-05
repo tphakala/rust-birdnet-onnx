@@ -2,13 +2,16 @@
 
 use crate::detection::detect_model_type;
 use crate::error::{Error, Result};
+use crate::inference_options::InferenceOptions;
 use crate::labels::load_labels_from_file;
 use crate::postprocess::top_k_predictions;
 use crate::types::{ExecutionProviderInfo, ModelConfig, ModelType, PredictionResult};
 use ndarray::Array2;
-use ort::session::Session;
+use ort::session::{RunOptions, Session};
 use ort::value::Value;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 // Macro to generate execution provider builder methods
 macro_rules! with_provider_method {
@@ -368,6 +371,17 @@ fn extract_output_shapes(session: &Session) -> Result<Vec<Vec<i64>>> {
         .collect()
 }
 
+/// Reason the monitor thread terminated.
+#[derive(Debug, Clone, Copy)]
+enum TerminationReason {
+    /// Inference completed normally.
+    Completed,
+    /// Timeout exceeded.
+    Timeout(Duration),
+    /// External cancellation requested.
+    Cancelled,
+}
+
 /// Internal state shared via Arc for thread safety
 struct ClassifierInner {
     session: Mutex<Session>,
@@ -434,10 +448,88 @@ impl Classifier {
         self.inner.requested_provider
     }
 
-    /// Run inference on a single audio segment
+    /// Run inference with optional timeout and cancellation support.
+    ///
+    /// Spawns a monitor thread that watches for timeout/cancellation and calls
+    /// `terminate()` on the `RunOptions` if needed.
+    #[allow(clippy::unused_self)] // self is used indirectly via closure capturing self.inner
+    fn run_inference<F, T>(&self, options: &InferenceOptions, f: F) -> Result<T>
+    where
+        F: FnOnce(&RunOptions) -> Result<T>,
+    {
+        let run_options = RunOptions::new()
+            .map_err(|e| Error::Inference(format!("failed to create run options: {e}")))?;
+
+        // Fast path: no monitoring needed
+        if !options.needs_monitor() {
+            return f(&run_options);
+        }
+
+        // Wrap for sharing with monitor thread
+        let run_options = Arc::new(run_options);
+        let completed = Arc::new(AtomicBool::new(false));
+
+        // Clone values for monitor thread
+        let run_options_clone = Arc::clone(&run_options);
+        let completed_clone = Arc::clone(&completed);
+        let timeout = options.timeout;
+        let cancel_token = options.cancellation_token.clone();
+
+        // Spawn monitor thread
+        let monitor_handle = std::thread::spawn(move || {
+            let start = Instant::now();
+            loop {
+                // Check if inference completed normally
+                if completed_clone.load(Ordering::SeqCst) {
+                    return TerminationReason::Completed;
+                }
+
+                // Check external cancellation
+                if let Some(ref token) = cancel_token
+                    && token.is_cancelled()
+                {
+                    let _ = run_options_clone.terminate();
+                    return TerminationReason::Cancelled;
+                }
+
+                // Check timeout
+                if let Some(duration) = timeout
+                    && start.elapsed() >= duration
+                {
+                    let _ = run_options_clone.terminate();
+                    return TerminationReason::Timeout(duration);
+                }
+
+                // Poll interval: balance responsiveness vs CPU overhead
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        });
+
+        // Run inference
+        let result = f(&run_options);
+
+        // Signal monitor to stop
+        completed.store(true, Ordering::SeqCst);
+
+        // Wait for monitor and get termination reason
+        let termination_reason = monitor_handle
+            .join()
+            .unwrap_or(TerminationReason::Completed);
+
+        // Translate errors based on termination reason
+        match (result, termination_reason) {
+            (Ok(value), _) => Ok(value),
+            (Err(_), TerminationReason::Timeout(duration)) => Err(Error::Timeout { duration }),
+            (Err(_), TerminationReason::Cancelled) => Err(Error::Cancelled),
+            (Err(e), TerminationReason::Completed) => Err(e),
+        }
+    }
+
+    /// Run inference on a single audio segment.
     ///
     /// # Arguments
     /// * `segment` - Audio samples (must match `config().sample_count`)
+    /// * `options` - Inference options for timeout and cancellation control
     ///
     /// # Returns
     /// * `PredictionResult` with top predictions, embeddings (if available), and raw scores
@@ -448,8 +540,26 @@ impl Classifier {
     /// - Input segment size doesn't match expected sample count
     /// - Session lock is poisoned
     /// - ONNX inference fails
+    /// - Inference times out ([`Error::Timeout`])
+    /// - Inference is cancelled ([`Error::Cancelled`])
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use birdnet_onnx::InferenceOptions;
+    /// use std::time::Duration;
+    ///
+    /// // With 30 second timeout
+    /// let result = classifier.predict(
+    ///     &segment,
+    ///     &InferenceOptions::timeout(Duration::from_secs(30)),
+    /// )?;
+    ///
+    /// // Without timeout (default behavior)
+    /// let result = classifier.predict(&segment, &InferenceOptions::default())?;
+    /// ```
     #[allow(clippy::significant_drop_tightening)]
-    pub fn predict(&self, segment: &[f32]) -> Result<PredictionResult> {
+    pub fn predict(&self, segment: &[f32], options: &InferenceOptions) -> Result<PredictionResult> {
         // Validate input size
         let expected = self.inner.config.sample_count;
         if segment.len() != expected {
@@ -466,29 +576,29 @@ impl Classifier {
         let input_value = Value::from_array(input_array)
             .map_err(|e| Error::Inference(format!("failed to create input tensor: {e}")))?;
 
-        // Run inference with locked session
-        // IMPORTANT: Session lock must be held while outputs exist because ort::Value
-        // borrows from the session. Dropping the lock before processing outputs would
-        // cause a use-after-free. This is why clippy::significant_drop_tightening is
-        // suppressed on this method.
-        let mut session = self
-            .inner
-            .session
-            .lock()
-            .map_err(|e| Error::Inference(format!("session lock poisoned: {e}")))?;
+        self.run_inference(options, |run_options| {
+            // IMPORTANT: Session lock must be held while outputs exist because ort::Value
+            // borrows from the session. Dropping the lock before processing outputs would
+            // cause a use-after-free.
+            let mut session = self
+                .inner
+                .session
+                .lock()
+                .map_err(|e| Error::Inference(format!("session lock poisoned: {e}")))?;
 
-        let outputs = session
-            .run(ort::inputs![input_value])
-            .map_err(|e| Error::Inference(e.to_string()))?;
+            let outputs = session
+                .run_with_options(ort::inputs![input_value.view()], run_options)
+                .map_err(|e| Error::Inference(e.to_string()))?;
 
-        // Process outputs based on model type
-        self.process_outputs(&outputs)
+            self.process_outputs(&outputs)
+        })
     }
 
-    /// Run inference on multiple audio segments (more efficient for GPU)
+    /// Run inference on multiple audio segments (more efficient for GPU).
     ///
     /// # Arguments
     /// * `segments` - Slice of audio segments (all must match `config().sample_count`)
+    /// * `options` - Inference options for timeout and cancellation control
     ///
     /// # Returns
     /// * Vector of `PredictionResult`, one per input segment
@@ -499,8 +609,27 @@ impl Classifier {
     /// - Any segment size doesn't match expected sample count
     /// - Session lock is poisoned
     /// - ONNX inference fails
+    /// - Inference times out ([`Error::Timeout`])
+    /// - Inference is cancelled ([`Error::Cancelled`])
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use birdnet_onnx::InferenceOptions;
+    /// use std::time::Duration;
+    ///
+    /// // With 60 second timeout for batch
+    /// let results = classifier.predict_batch(
+    ///     &segments,
+    ///     &InferenceOptions::timeout(Duration::from_secs(60)),
+    /// )?;
+    /// ```
     #[allow(clippy::significant_drop_tightening)]
-    pub fn predict_batch(&self, segments: &[&[f32]]) -> Result<Vec<PredictionResult>> {
+    pub fn predict_batch(
+        &self,
+        segments: &[&[f32]],
+        options: &InferenceOptions,
+    ) -> Result<Vec<PredictionResult>> {
         if segments.is_empty() {
             return Ok(Vec::new());
         }
@@ -532,23 +661,21 @@ impl Classifier {
         let input_value = Value::from_array(input_array)
             .map_err(|e| Error::Inference(format!("failed to create input tensor: {e}")))?;
 
-        // Run inference with locked session
-        // IMPORTANT: Session lock must be held while outputs exist because ort::Value
-        // borrows from the session. Dropping the lock before processing outputs would
-        // cause a use-after-free. This is why clippy::significant_drop_tightening is
-        // suppressed on this method.
-        let mut session = self
-            .inner
-            .session
-            .lock()
-            .map_err(|e| Error::Inference(format!("session lock poisoned: {e}")))?;
+        self.run_inference(options, |run_options| {
+            // IMPORTANT: Session lock must be held while outputs exist because ort::Value
+            // borrows from the session.
+            let mut session = self
+                .inner
+                .session
+                .lock()
+                .map_err(|e| Error::Inference(format!("session lock poisoned: {e}")))?;
 
-        let outputs = session
-            .run(ort::inputs![input_value])
-            .map_err(|e| Error::Inference(e.to_string()))?;
+            let outputs = session
+                .run_with_options(ort::inputs![input_value.view()], run_options)
+                .map_err(|e| Error::Inference(e.to_string()))?;
 
-        // Process batch outputs
-        self.process_batch_outputs(&outputs, batch_size)
+            self.process_batch_outputs(&outputs, batch_size)
+        })
     }
 
     /// Process single inference outputs

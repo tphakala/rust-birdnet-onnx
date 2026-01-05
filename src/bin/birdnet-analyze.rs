@@ -4,8 +4,8 @@
 #![allow(clippy::print_stderr)] // CLI tool needs stderr
 
 use birdnet_onnx::{
-    Classifier, ExecutionProviderInfo, ModelType, Result, available_execution_providers,
-    find_ort_library, init_runtime,
+    Classifier, ExecutionProviderInfo, InferenceOptions, ModelType, Result,
+    available_execution_providers, find_ort_library, init_runtime,
 };
 use clap::Parser;
 use std::path::PathBuf;
@@ -500,7 +500,7 @@ fn run_with_args(args: Args) -> Result<()> {
             );
         }
         let batch_start = Instant::now();
-        let results = classifier.predict_batch(&batch_segments)?;
+        let results = classifier.predict_batch(&batch_segments, &InferenceOptions::default())?;
         if args.verbose {
             eprintln!(
                 "{} [DEBUG] Batch {} completed in {:?}",

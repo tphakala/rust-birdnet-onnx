@@ -10,7 +10,7 @@
 #![allow(clippy::items_after_statements)] // Allow use imports in tests
 #![allow(clippy::unnecessary_wraps)] // Tests can return Result for consistency
 
-use birdnet_onnx::{Classifier, ModelType, RangeFilter, Result, init_runtime};
+use birdnet_onnx::{Classifier, InferenceOptions, ModelType, RangeFilter, Result, init_runtime};
 use std::path::Path;
 
 const FIXTURES_DIR: &str = "tests/fixtures";
@@ -104,7 +104,7 @@ fn test_birdnet_v24_predict() -> Result<()> {
         .build()?;
 
     let segment = silent_segment(ModelType::BirdNetV24);
-    let result = classifier.predict(&segment)?;
+    let result = classifier.predict(&segment, &InferenceOptions::default())?;
 
     assert_eq!(result.model_type, ModelType::BirdNetV24);
     assert!(result.predictions.len() <= 10);
@@ -136,7 +136,7 @@ fn test_birdnet_v24_predict_batch() -> Result<()> {
     let seg3 = sine_wave_segment(ModelType::BirdNetV24, 1000.0);
 
     let segments: Vec<&[f32]> = vec![&seg1, &seg2, &seg3];
-    let results = classifier.predict_batch(&segments)?;
+    let results = classifier.predict_batch(&segments, &InferenceOptions::default())?;
 
     assert_eq!(results.len(), 3);
 
@@ -161,7 +161,7 @@ fn test_birdnet_v24_wrong_input_size() -> Result<()> {
         .build()?;
 
     let wrong_size = vec![0.0f32; 100_000]; // Wrong size
-    let result = classifier.predict(&wrong_size);
+    let result = classifier.predict(&wrong_size, &InferenceOptions::default());
 
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -211,7 +211,7 @@ fn test_birdnet_v30_predict_with_embeddings() -> Result<()> {
         .build()?;
 
     let segment = silent_segment(ModelType::BirdNetV30);
-    let result = classifier.predict(&segment)?;
+    let result = classifier.predict(&segment, &InferenceOptions::default())?;
 
     assert_eq!(result.model_type, ModelType::BirdNetV30);
     assert!(result.embeddings.is_some());
@@ -264,7 +264,7 @@ fn test_perch_v2_predict() -> Result<()> {
         .build()?;
 
     let segment = silent_segment(ModelType::PerchV2);
-    let result = classifier.predict(&segment)?;
+    let result = classifier.predict(&segment, &InferenceOptions::default())?;
 
     assert_eq!(result.model_type, ModelType::PerchV2);
     assert!(result.embeddings.is_some());
@@ -324,7 +324,9 @@ fn test_perch_v2_predict_real_model() {
 
     // Test with silent audio
     let segment = silent_segment(ModelType::PerchV2);
-    let result = classifier.predict(&segment).expect("prediction failed");
+    let result = classifier
+        .predict(&segment, &InferenceOptions::default())
+        .expect("prediction failed");
 
     assert_eq!(result.model_type, ModelType::PerchV2);
     assert!(result.embeddings.is_some(), "should have embeddings");
@@ -370,7 +372,7 @@ fn test_perch_v2_batch_predict() {
 
     let segments: Vec<&[f32]> = vec![&seg1, &seg2, &seg3];
     let results = classifier
-        .predict_batch(&segments)
+        .predict_batch(&segments, &InferenceOptions::default())
         .expect("batch prediction failed");
 
     assert_eq!(results.len(), 3, "should return 3 results");
@@ -413,7 +415,7 @@ fn test_in_memory_labels() -> Result<()> {
         .build()?;
 
     let segment = silent_segment(ModelType::BirdNetV24);
-    let result = classifier.predict(&segment)?;
+    let result = classifier.predict(&segment, &InferenceOptions::default())?;
 
     // Check that our custom labels are used
     for pred in &result.predictions {
@@ -441,7 +443,7 @@ fn test_top_k_configuration() -> Result<()> {
         .build()?;
 
     let segment = silent_segment(ModelType::BirdNetV24);
-    let result = classifier.predict(&segment)?;
+    let result = classifier.predict(&segment, &InferenceOptions::default())?;
 
     assert!(result.predictions.len() <= 5);
 
@@ -462,7 +464,7 @@ fn test_min_confidence_configuration() -> Result<()> {
         .build()?;
 
     let segment = silent_segment(ModelType::BirdNetV24);
-    let result = classifier.predict(&segment)?;
+    let result = classifier.predict(&segment, &InferenceOptions::default())?;
 
     // All returned predictions should meet threshold
     for pred in &result.predictions {
@@ -506,7 +508,7 @@ fn test_concurrent_predictions() -> Result<()> {
             thread::spawn(move || {
                 let segment = vec![0.0f32; 144_000];
                 for _ in 0..10 {
-                    let result = clf.predict(&segment).unwrap();
+                    let result = clf.predict(&segment, &InferenceOptions::default()).unwrap();
                     assert_eq!(result.model_type, ModelType::BirdNetV24);
                 }
                 i

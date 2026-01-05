@@ -108,7 +108,6 @@ impl InferenceOptions {
     }
 
     /// Check if any options are configured that require monitoring.
-    #[allow(dead_code)] // Used in classifier.rs, will be used in next task
     pub(crate) const fn needs_monitor(&self) -> bool {
         self.timeout.is_some() || self.cancellation_token.is_some()
     }
@@ -166,7 +165,7 @@ mod tests {
         let token = CancellationToken::new();
         let opts = InferenceOptions::new()
             .with_timeout(Duration::from_secs(60))
-            .with_cancellation_token(token.clone());
+            .with_cancellation_token(token);
 
         assert_eq!(opts.timeout, Some(Duration::from_secs(60)));
         assert!(opts.cancellation_token.is_some());
