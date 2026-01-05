@@ -8,7 +8,23 @@
 //! - **`BirdNET` v3.0**: 32kHz, 5s segments (160,000 samples)
 //! - **`Perch` v2**: 32kHz, 5s segments (160,000 samples)
 //!
-//! ## Example
+//! ## Basic Example
+//!
+//! ```ignore
+//! use birdnet_onnx::{Classifier, InferenceOptions};
+//!
+//! let classifier = Classifier::builder()
+//!     .model_path("model.onnx")
+//!     .labels_path("labels.txt")
+//!     .build()?;
+//!
+//! let result = classifier.predict(&audio_segment, &InferenceOptions::default())?;
+//! for pred in &result.predictions {
+//!     println!("{}: {:.1}%", pred.species, pred.confidence * 100.0);
+//! }
+//! ```
+//!
+//! ## GPU Inference with CUDA
 //!
 //! ```ignore
 //! use birdnet_onnx::{Classifier, InferenceOptions};
@@ -17,15 +33,37 @@
 //! let classifier = Classifier::builder()
 //!     .model_path("model.onnx")
 //!     .labels_path("labels.txt")
+//!     .with_cuda()  // Safe defaults for memory allocation
+//!     .build()?;
+//!
+//! // With timeout
+//! let options = InferenceOptions::timeout(Duration::from_secs(30));
+//! let result = classifier.predict(&audio_segment, &options)?;
+//! ```
+//!
+//! ## Memory-Efficient GPU Batch Processing
+//!
+//! For processing many batches on GPU without memory growth:
+//!
+//! ```ignore
+//! use birdnet_onnx::{Classifier, InferenceOptions};
+//!
+//! let classifier = Classifier::builder()
+//!     .model_path("model.onnx")
+//!     .labels_path("labels.txt")
 //!     .with_cuda()
 //!     .build()?;
 //!
-//! let result = classifier.predict(
-//!     &audio_segment,
-//!     InferenceOptions::timeout(Duration::from_secs(30)),
-//! )?;
-//! for pred in &result.predictions {
-//!     println!("{}: {:.1}%", pred.species, pred.confidence * 100.0);
+//! // Pre-allocate buffers for batches up to 32 segments
+//! let mut ctx = classifier.create_batch_context(32)?;
+//!
+//! // Memory is reused across batch calls
+//! for chunk in audio_segments.chunks(32) {
+//!     let results = classifier.predict_batch_with_context(
+//!         &mut ctx,
+//!         chunk,
+//!         &InferenceOptions::default(),
+//!     )?;
 //! }
 //! ```
 

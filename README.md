@@ -34,13 +34,13 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-birdnet-onnx = "1.0"
+birdnet-onnx = "2.0"
 ```
 
 ## Library Usage
 
 ```rust
-use birdnet_onnx::{Classifier, Result};
+use birdnet_onnx::{Classifier, InferenceOptions, Result};
 
 fn main() -> Result<()> {
     // Build classifier
@@ -55,7 +55,7 @@ fn main() -> Result<()> {
     let audio: Vec<f32> = load_audio_segment();
 
     // Run inference
-    let result = classifier.predict(&audio)?;
+    let result = classifier.predict(&audio, &InferenceOptions::default())?;
 
     for pred in &result.predictions {
         println!("{}: {:.1}%", pred.species, pred.confidence * 100.0);
@@ -68,22 +68,85 @@ fn main() -> Result<()> {
 ### With CUDA GPU
 
 ```rust
-use birdnet_onnx::{Classifier, execution_providers::CUDAExecutionProvider};
+use birdnet_onnx::Classifier;
 
 let classifier = Classifier::builder()
     .model_path("model.onnx")
     .labels_path("labels.txt")
-    .execution_provider(CUDAExecutionProvider::default())
+    .with_cuda()  // Uses safe defaults for memory allocation
+    .build()?;
+```
+
+For fine-grained control over CUDA memory allocation:
+
+```rust
+use birdnet_onnx::{Classifier, CUDAConfig, ArenaExtendStrategy};
+
+let classifier = Classifier::builder()
+    .model_path("model.onnx")
+    .labels_path("labels.txt")
+    .with_cuda_config(
+        CUDAConfig::new()
+            .with_memory_limit(4 * 1024 * 1024 * 1024)  // 4GB limit
+            .with_arena_extend_strategy(ArenaExtendStrategy::SameAsRequested)
+    )
     .build()?;
 ```
 
 ### Batch Inference
 
 ```rust
+use birdnet_onnx::InferenceOptions;
+
 let segments: Vec<Vec<f32>> = chunk_audio_file();
 let refs: Vec<&[f32]> = segments.iter().map(|s| s.as_slice()).collect();
 
-let results = classifier.predict_batch(&refs)?;
+let results = classifier.predict_batch(&refs, &InferenceOptions::default())?;
+```
+
+### GPU Memory-Efficient Batch Processing
+
+For processing many batches on GPU, use `BatchInferenceContext` to prevent memory growth:
+
+```rust
+use birdnet_onnx::{Classifier, InferenceOptions};
+
+let classifier = Classifier::builder()
+    .model_path("model.onnx")
+    .labels_path("labels.txt")
+    .with_cuda()
+    .build()?;
+
+// Create context with pre-allocated buffers (max 32 segments per batch)
+let mut ctx = classifier.create_batch_context(32)?;
+
+// Process multiple batches - memory is reused across calls
+for chunk in audio_segments.chunks(32) {
+    let refs: Vec<&[f32]> = chunk.iter().map(|s| s.as_slice()).collect();
+    let results = classifier.predict_batch_with_context(
+        &mut ctx,
+        &refs,
+        &InferenceOptions::default(),
+    )?;
+}
+```
+
+### Timeout and Cancellation
+
+```rust
+use birdnet_onnx::{InferenceOptions, CancellationToken};
+use std::time::Duration;
+
+// With timeout
+let options = InferenceOptions::timeout(Duration::from_secs(30));
+let result = classifier.predict(&audio, &options)?;
+
+// With cancellation token (for graceful shutdown)
+let token = CancellationToken::new();
+let options = InferenceOptions::new().with_cancellation_token(token.clone());
+
+// Cancel from another thread
+token.cancel();
 ```
 
 ## Execution Provider Query
@@ -130,9 +193,19 @@ With options:
 birdnet-analyze recording.wav \
     -m birdnet_v24.onnx \
     -l labels.txt \
-    -o 1.5 \          # 1.5s overlap between segments
-    -k 5 \            # Top 5 predictions
-    --min-confidence 0.2
+    -o 1.5 \              # 1.5s overlap between segments
+    -k 5 \                # Top 5 predictions
+    --min-confidence 0.2 \
+    --batch-size 32 \     # Segments per batch
+    --timeout 30 \        # Per-batch timeout in seconds
+    -v                    # Verbose output (shows timing, memory usage)
+```
+
+With GPU acceleration:
+
+```bash
+birdnet-analyze recording.wav -m model.onnx -l labels.txt --cuda
+birdnet-analyze recording.wav -m model.onnx -l labels.txt --tensorrt
 ```
 
 Example output:
@@ -140,6 +213,7 @@ Example output:
 ```
 Analyzing: recording.wav (3m 21s, 48000 Hz)
 Model: BirdNET v2.4 (3.0s segments, 1.5s overlap)
+Provider: CUDA
 
 00:00.0  Eurasian Pygmy-Owl (92.4%)
 00:01.5  Eurasian Pygmy-Owl (97.8%)
