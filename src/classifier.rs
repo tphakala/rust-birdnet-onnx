@@ -129,12 +129,71 @@ impl ClassifierBuilder {
         self
     }
 
-    with_provider_method!(
-        with_cuda,
-        CUDAExecutionProvider,
-        Cuda,
-        "Request CUDA execution provider (NVIDIA GPU)"
-    );
+    /// Request CUDA execution provider (NVIDIA GPU) with safe defaults
+    ///
+    /// This method uses safe defaults to prevent memory allocation issues:
+    /// - **Arena strategy**: `SameAsRequested` to prevent exponential memory growth
+    /// - **No memory limit**: Uses available GPU memory
+    ///
+    /// For custom CUDA settings, use [`with_cuda_config()`](Self::with_cuda_config).
+    ///
+    /// # Safe Defaults
+    ///
+    /// ONNX Runtime's default `NextPowerOfTwo` arena strategy can cause sudden 4GB+
+    /// allocations that freeze Windows systems. This method uses `SameAsRequested`
+    /// by default to allocate memory more gradually.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use birdnet_onnx::Classifier;
+    ///
+    /// let classifier = Classifier::builder()
+    ///     .model_path("model.onnx")
+    ///     .labels_path("labels.txt")
+    ///     .with_cuda()
+    ///     .build()?;
+    /// # Ok::<(), birdnet_onnx::Error>(())
+    /// ```
+    #[must_use]
+    pub fn with_cuda(self) -> Self {
+        self.with_cuda_config(crate::cuda_config::CUDAConfig::new())
+    }
+
+    /// Configure CUDA with custom settings
+    ///
+    /// Use this method when you need fine-grained control over CUDA memory allocation.
+    /// For most use cases, [`with_cuda()`](Self::with_cuda) provides safe defaults.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use birdnet_onnx::{Classifier, CUDAConfig};
+    ///
+    /// let cuda_config = CUDAConfig::new()
+    ///     .with_memory_limit(8 * 1024 * 1024 * 1024)  // 8GB limit
+    ///     .with_device_id(1);  // Use second GPU
+    ///
+    /// let classifier = Classifier::builder()
+    ///     .model_path("model.onnx")
+    ///     .labels_path("labels.txt")
+    ///     .with_cuda_config(cuda_config)
+    ///     .build()?;
+    /// # Ok::<(), birdnet_onnx::Error>(())
+    /// ```
+    #[must_use]
+    pub fn with_cuda_config(mut self, config: crate::cuda_config::CUDAConfig) -> Self {
+        use ort::execution_providers::CUDAExecutionProvider;
+
+        let provider = config.apply_to(CUDAExecutionProvider::default());
+        self.execution_providers.push(provider.into());
+
+        if self.requested_provider == ExecutionProviderInfo::Cpu {
+            self.requested_provider = ExecutionProviderInfo::Cuda;
+        }
+
+        self
+    }
 
     /// Request `TensorRT` execution provider (NVIDIA GPU) with optimized defaults
     ///
@@ -173,19 +232,8 @@ impl ClassifierBuilder {
     /// # Ok::<(), birdnet_onnx::Error>(())
     /// ```
     #[must_use]
-    pub fn with_tensorrt(mut self) -> Self {
-        use ort::execution_providers::TensorRTExecutionProvider;
-
-        let config = crate::tensorrt_config::TensorRTConfig::new();
-        let provider = config.apply_to(TensorRTExecutionProvider::default());
-
-        self.execution_providers.push(provider.into());
-
-        if self.requested_provider == ExecutionProviderInfo::Cpu {
-            self.requested_provider = ExecutionProviderInfo::TensorRt;
-        }
-
-        self
+    pub fn with_tensorrt(self) -> Self {
+        self.with_tensorrt_config(crate::tensorrt_config::TensorRTConfig::new())
     }
 
     /// Configure `TensorRT` with custom settings
@@ -1054,6 +1102,29 @@ mod tests {
     #[test]
     fn test_with_cuda_sets_requested_provider() {
         let builder = ClassifierBuilder::new().with_cuda();
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cuda);
+        assert_eq!(builder.execution_providers.len(), 1);
+    }
+
+    #[test]
+    fn test_with_cuda_config_sets_requested_provider() {
+        use crate::CUDAConfig;
+
+        let config = CUDAConfig::new();
+        let builder = ClassifierBuilder::new().with_cuda_config(config);
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cuda);
+        assert_eq!(builder.execution_providers.len(), 1);
+    }
+
+    #[test]
+    fn test_with_cuda_config_custom_settings() {
+        use crate::CUDAConfig;
+
+        let config = CUDAConfig::new()
+            .with_memory_limit(8 * 1024 * 1024 * 1024)
+            .with_device_id(1);
+
+        let builder = ClassifierBuilder::new().with_cuda_config(config);
         assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cuda);
         assert_eq!(builder.execution_providers.len(), 1);
     }

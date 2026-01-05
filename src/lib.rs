@@ -36,6 +36,7 @@
 #![allow(clippy::module_name_repetitions)]
 
 mod classifier;
+pub mod cuda_config;
 mod detection;
 mod error;
 pub mod execution_providers;
@@ -50,6 +51,7 @@ pub mod testutil;
 mod types;
 
 pub use classifier::{Classifier, ClassifierBuilder};
+pub use cuda_config::{ArenaExtendStrategy, CUDAConfig};
 pub use error::{Error, Result};
 pub use execution_providers::available_execution_providers;
 pub use inference_options::{CancellationToken, InferenceOptions};
