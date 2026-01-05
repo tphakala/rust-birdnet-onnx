@@ -39,7 +39,7 @@ use crate::error::{Error, Result};
 use crate::types::{ModelConfig, ModelType};
 use ort::io_binding::IoBinding;
 use ort::session::Session;
-use ort::value::Tensor;
+use ort::value::TensorRef;
 use std::sync::MutexGuard;
 
 /// Pre-allocated buffers for efficient repeated batch inference.
@@ -70,6 +70,8 @@ use std::sync::MutexGuard;
 pub struct BatchInferenceContext {
     /// `IoBinding` for the session
     pub(crate) io_binding: IoBinding,
+    /// Pre-allocated input buffer to avoid per-batch allocations
+    input_buffer: Vec<f32>,
     /// Maximum batch size this context supports
     max_batch_size: usize,
     /// Sample count per segment
@@ -116,8 +118,12 @@ impl BatchInferenceContext {
             .create_binding()
             .map_err(|e| Error::Inference(format!("failed to create IoBinding: {e}")))?;
 
+        // Pre-allocate input buffer for max batch size
+        let input_buffer = vec![0.0f32; max_batch_size * config.sample_count];
+
         Ok(Self {
             io_binding,
+            input_buffer,
             max_batch_size,
             sample_count: config.sample_count,
             num_species: config.num_species,
@@ -144,14 +150,64 @@ impl BatchInferenceContext {
         self.model_type
     }
 
-    /// Bind input tensor to the `IoBinding`.
+    /// Prepare input by filling the pre-allocated buffer and binding to `IoBinding`.
     ///
-    /// This creates a new input tensor from the provided segments and binds it
-    /// to the `IoBinding` for inference.
-    pub(crate) fn bind_input(&mut self, input_value: &Tensor<f32>) -> Result<()> {
+    /// This method:
+    /// 1. Validates segment sizes
+    /// 2. Copies audio data into the pre-allocated buffer
+    /// 3. Creates a tensor reference from the buffer (zero-copy)
+    /// 4. Binds the tensor to the `IoBinding`
+    ///
+    /// The input buffer is reused across calls, avoiding heap allocations.
+    ///
+    /// # Arguments
+    ///
+    /// * `segments` - Audio segments to process
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Batch size exceeds `max_batch_size`
+    /// - Any segment has incorrect sample count
+    /// - Tensor creation fails
+    /// - Binding fails
+    pub(crate) fn prepare_input(&mut self, segments: &[&[f32]]) -> Result<()> {
+        let batch_size = segments.len();
+
+        if batch_size > self.max_batch_size {
+            return Err(Error::Inference(format!(
+                "batch size {} exceeds context max {}",
+                batch_size, self.max_batch_size
+            )));
+        }
+
+        // Copy segment data into pre-allocated buffer
+        for (i, segment) in segments.iter().enumerate() {
+            if segment.len() != self.sample_count {
+                return Err(Error::BatchInputSize {
+                    index: i,
+                    expected: self.sample_count,
+                    got: segment.len(),
+                });
+            }
+
+            let start = i * self.sample_count;
+            let end = start + self.sample_count;
+            self.input_buffer[start..end].copy_from_slice(segment);
+        }
+
+        // Create tensor reference from the filled portion of buffer (zero-copy)
+        let input_ref = TensorRef::from_array_view((
+            [batch_size, self.sample_count],
+            &self.input_buffer[..batch_size * self.sample_count],
+        ))
+        .map_err(|e| Error::Inference(format!("failed to create input tensor: {e}")))?;
+
+        // Bind to IoBinding
         self.io_binding
-            .bind_input("input", input_value)
+            .bind_input("input", &input_ref)
             .map_err(|e| Error::Inference(format!("failed to bind input: {e}")))?;
+
         Ok(())
     }
 

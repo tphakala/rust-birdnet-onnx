@@ -834,43 +834,10 @@ impl Classifier {
         }
 
         let batch_size = segments.len();
-        let expected = self.inner.config.sample_count;
 
-        // Validate batch size against context
-        if batch_size > context.max_batch_size() {
-            return Err(Error::Inference(format!(
-                "batch size {} exceeds context max {}",
-                batch_size,
-                context.max_batch_size()
-            )));
-        }
-
-        // Validate all segments
-        for (i, seg) in segments.iter().enumerate() {
-            if seg.len() != expected {
-                return Err(Error::BatchInputSize {
-                    index: i,
-                    expected,
-                    got: seg.len(),
-                });
-            }
-        }
-
-        // Stack segments into [batch_size, sample_count]
-        let mut batch_data = Vec::with_capacity(batch_size * expected);
-        for seg in segments {
-            batch_data.extend_from_slice(seg);
-        }
-
-        let input_array = Array2::from_shape_vec((batch_size, expected), batch_data)
-            .map_err(|e| Error::Inference(format!("failed to create batch array: {e}")))?;
-
-        let input_value = Value::from_array(input_array)
-            .map_err(|e| Error::Inference(format!("failed to create input tensor: {e}")))?;
-
-        // Clear previous inputs and bind new ones
+        // Clear previous inputs and prepare new ones (validates, fills buffer, creates tensor, binds)
         context.clear_inputs();
-        context.bind_input(&input_value)?;
+        context.prepare_input(segments)?;
         context.bind_outputs_to_device()?;
 
         self.run_inference(options, |run_options| {
