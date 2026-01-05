@@ -726,6 +726,190 @@ impl Classifier {
         })
     }
 
+    /// Create a batch inference context for efficient repeated batch inference.
+    ///
+    /// Pre-allocates GPU memory for the specified batch size. Use this when processing
+    /// many batches of audio segments to avoid memory growth issues on GPU.
+    ///
+    /// # Arguments
+    ///
+    /// * `max_batch_size` - Maximum number of segments per batch. Actual batches can
+    ///   be smaller, but not larger.
+    ///
+    /// # Supported Models
+    ///
+    /// Currently supports:
+    /// - `BirdNET` v2.4
+    /// - `BirdNET` v3.0
+    ///
+    /// Returns an error for `Perch` v2 (use [`predict_batch()`](Self::predict_batch) instead).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use birdnet_onnx::{Classifier, InferenceOptions};
+    ///
+    /// let classifier = Classifier::builder()
+    ///     .model_path("model.onnx")
+    ///     .labels_path("labels.txt")
+    ///     .with_cuda()
+    ///     .build()?;
+    ///
+    /// // Create context for batches up to 32 segments
+    /// let mut ctx = classifier.create_batch_context(32)?;
+    ///
+    /// // Process multiple batches - memory is reused
+    /// for chunk in audio_segments.chunks(32) {
+    ///     let results = classifier.predict_batch_with_context(
+    ///         &mut ctx,
+    ///         chunk,
+    ///         &InferenceOptions::default(),
+    ///     )?;
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Model type is `Perch` v2 (not yet supported)
+    /// - Session lock is poisoned
+    /// - `IoBinding` creation fails
+    pub fn create_batch_context(
+        &self,
+        max_batch_size: usize,
+    ) -> Result<crate::batch_context::BatchInferenceContext> {
+        let session = self
+            .inner
+            .session
+            .lock()
+            .map_err(|e| Error::Inference(format!("session lock poisoned: {e}")))?;
+
+        crate::batch_context::BatchInferenceContext::new(
+            &session,
+            &self.inner.config,
+            max_batch_size,
+        )
+    }
+
+    /// Run batch inference using a pre-allocated context for memory efficiency.
+    ///
+    /// This method reuses GPU memory from the context, preventing memory growth
+    /// across repeated batch inference calls. Use this instead of [`predict_batch()`](Self::predict_batch)
+    /// when processing many batches on GPU.
+    ///
+    /// # Arguments
+    ///
+    /// * `context` - Pre-allocated batch context from [`create_batch_context()`](Self::create_batch_context)
+    /// * `segments` - Audio segments to process (must not exceed context's max batch size)
+    /// * `options` - Inference options for timeout and cancellation
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut ctx = classifier.create_batch_context(32)?;
+    ///
+    /// // Process batches - memory is reused between calls
+    /// let results1 = classifier.predict_batch_with_context(&mut ctx, &batch1, &options)?;
+    /// let results2 = classifier.predict_batch_with_context(&mut ctx, &batch2, &options)?;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Batch size exceeds context's maximum
+    /// - Any segment size doesn't match expected sample count
+    /// - Session lock is poisoned
+    /// - Inference fails
+    /// - Timeout is exceeded
+    /// - Cancellation is requested
+    #[allow(clippy::significant_drop_tightening)]
+    pub fn predict_batch_with_context(
+        &self,
+        context: &mut crate::batch_context::BatchInferenceContext,
+        segments: &[&[f32]],
+        options: &InferenceOptions,
+    ) -> Result<Vec<PredictionResult>> {
+        if segments.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let batch_size = segments.len();
+
+        // Clear previous inputs and prepare new ones (validates, fills buffer, creates tensor, binds)
+        context.clear_inputs();
+        context.prepare_input(segments)?;
+        context.bind_outputs_to_device()?;
+
+        self.run_inference(options, |run_options| {
+            let mut session = self
+                .inner
+                .session
+                .lock()
+                .map_err(|e| Error::Inference(format!("session lock poisoned: {e}")))?;
+
+            // Run with IoBinding
+            let outputs = session
+                .run_binding_with_options(&context.io_binding, run_options)
+                .map_err(|e| Error::Inference(e.to_string()))?;
+
+            // Synchronize to ensure proper memory bookkeeping
+            context.synchronize()?;
+
+            // Extract and process outputs
+            let (embeddings_flat, logits_flat) = context.extract_outputs(&outputs, batch_size)?;
+
+            self.process_batch_outputs_from_flat(
+                batch_size,
+                embeddings_flat.as_deref(),
+                &logits_flat,
+            )
+        })
+    }
+
+    /// Process batch outputs from flat vectors.
+    ///
+    /// Used by `predict_batch_with_context` to process pre-extracted output data.
+    fn process_batch_outputs_from_flat(
+        &self,
+        batch_size: usize,
+        embeddings_flat: Option<&[f32]>,
+        logits_flat: &[f32],
+    ) -> Result<Vec<PredictionResult>> {
+        let model_type = self.inner.config.model_type;
+        let num_species = self.inner.config.num_species;
+        let embedding_dim = self.inner.config.embedding_dim;
+
+        (0..batch_size)
+            .map(|i| {
+                let logits_start = i * num_species;
+                let logits_end = logits_start + num_species;
+                let logits = &logits_flat[logits_start..logits_end];
+
+                let embeddings = embeddings_flat.and_then(|emb| {
+                    embedding_dim.map(|dim| {
+                        let emb_start = i * dim;
+                        let emb_end = emb_start + dim;
+                        emb[emb_start..emb_end].to_vec()
+                    })
+                });
+
+                let predictions = top_k_predictions(
+                    logits,
+                    &self.inner.labels,
+                    self.inner.top_k,
+                    self.inner.min_confidence,
+                );
+
+                Ok(PredictionResult {
+                    model_type,
+                    predictions,
+                    embeddings,
+                    raw_scores: logits.to_vec(),
+                })
+            })
+            .collect()
+    }
+
     /// Process single inference outputs
     fn process_outputs(&self, outputs: &ort::session::SessionOutputs) -> Result<PredictionResult> {
         let model_type = self.inner.config.model_type;

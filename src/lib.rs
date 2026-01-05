@@ -35,6 +35,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 #![allow(clippy::module_name_repetitions)]
 
+mod batch_context;
 mod classifier;
 pub mod cuda_config;
 mod detection;
@@ -50,6 +51,7 @@ pub mod tensorrt_config;
 pub mod testutil;
 mod types;
 
+pub use batch_context::BatchInferenceContext;
 pub use classifier::{Classifier, ClassifierBuilder};
 pub use cuda_config::{ArenaExtendStrategy, CUDAConfig};
 pub use error::{Error, Result};
