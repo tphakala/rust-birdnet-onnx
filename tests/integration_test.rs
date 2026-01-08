@@ -10,7 +10,9 @@
 #![allow(clippy::items_after_statements)] // Allow use imports in tests
 #![allow(clippy::unnecessary_wraps)] // Tests can return Result for consistency
 
-use birdnet_onnx::{Classifier, InferenceOptions, ModelType, RangeFilter, Result, init_runtime};
+#[cfg(feature = "load-dynamic")]
+use birdnet_onnx::init_runtime;
+use birdnet_onnx::{Classifier, InferenceOptions, ModelType, RangeFilter, Result};
 use std::path::Path;
 
 const FIXTURES_DIR: &str = "tests/fixtures";
@@ -275,6 +277,7 @@ fn test_perch_v2_predict() -> Result<()> {
 #[test]
 #[allow(clippy::expect_used, clippy::print_stdout, clippy::float_cmp)]
 fn test_perch_v2_auto_detection() {
+    #[cfg(feature = "load-dynamic")]
     init_runtime().expect("failed to init runtime");
 
     let Some((model_path, labels_path)) = get_perch_v2_test_assets() else {
@@ -308,6 +311,7 @@ fn test_perch_v2_auto_detection() {
 #[test]
 #[allow(clippy::expect_used, clippy::print_stdout)]
 fn test_perch_v2_predict_real_model() {
+    #[cfg(feature = "load-dynamic")]
     init_runtime().expect("failed to init runtime");
 
     let Some((model_path, labels_path)) = get_perch_v2_test_assets() else {
@@ -353,6 +357,7 @@ fn test_perch_v2_predict_real_model() {
 #[test]
 #[allow(clippy::expect_used)]
 fn test_perch_v2_batch_predict() {
+    #[cfg(feature = "load-dynamic")]
     init_runtime().expect("failed to init runtime");
 
     let Some((model_path, labels_path)) = get_perch_v2_test_assets() else {
@@ -588,6 +593,7 @@ fn test_label_count_mismatch() -> Result<()> {
 #[test]
 #[allow(clippy::expect_used, clippy::print_stdout)]
 fn test_range_filter_with_real_model() {
+    #[cfg(feature = "load-dynamic")]
     init_runtime().expect("failed to init runtime");
 
     // Get model path from environment variable (for local testing only)
@@ -650,6 +656,7 @@ fn test_range_filter_with_real_model() {
 #[test]
 #[allow(clippy::expect_used)]
 fn test_range_filter_invalid_inputs() {
+    #[cfg(feature = "load-dynamic")]
     init_runtime().expect("failed to init runtime");
 
     // Get model path from environment variable
@@ -700,6 +707,7 @@ fn test_range_filter_invalid_inputs() {
 #[test]
 #[allow(clippy::expect_used)]
 fn test_range_filter_from_classifier_labels() {
+    #[cfg(feature = "load-dynamic")]
     init_runtime().expect("failed to init runtime");
 
     // Get model paths from environment variables
@@ -746,6 +754,7 @@ fn test_range_filter_from_classifier_labels() {
 #[test]
 #[allow(clippy::expect_used, clippy::print_stdout)]
 fn test_range_filter_complete_workflow() {
+    #[cfg(feature = "load-dynamic")]
     init_runtime().expect("failed to init runtime");
 
     // Get model path from environment variable

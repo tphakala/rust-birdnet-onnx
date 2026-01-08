@@ -37,6 +37,31 @@ Add to your `Cargo.toml`:
 birdnet-onnx = "2.0"
 ```
 
+### ONNX Runtime Linking
+
+By default, ONNX Runtime is statically linked into your binary using the `download-binaries` feature. This means:
+
+- No external `onnxruntime.dll`/`libonnxruntime.so` needed at runtime
+- No DLL search order issues on Windows
+- Larger binary size (~50MB additional)
+
+For dynamic linking (loads ONNX Runtime at runtime):
+
+```toml
+[dependencies]
+birdnet-onnx = { version = "2.0", features = ["load-dynamic"] }
+```
+
+With dynamic linking, you must ensure the correct ONNX Runtime library is available:
+
+- Set `ORT_DYLIB_PATH` environment variable to the library path, or
+- Place the library in the executable's directory, or
+- Install ONNX Runtime system-wide
+
+CUDA and cuDNN libraries always load dynamically from system paths regardless of linking mode.
+
+Features can be combined: `--features cuda,load-dynamic` enables CUDA with dynamic ONNX Runtime loading.
+
 ## Library Usage
 
 ```rust
