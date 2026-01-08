@@ -137,9 +137,14 @@ fn find_linux_lib(base_dir: &std::path::Path) -> Option<PathBuf> {
 /// ```
 pub fn init_runtime() -> Result<(), Error> {
     if let Some(lib_path) = find_ort_library() {
-        ort::init_from(lib_path.display().to_string())
-            .commit()
-            .map_err(|e| Error::RuntimeInit(e.to_string()))?;
+        // commit() returns false if an environment was already configured.
+        // We intentionally ignore this because:
+        // 1. init_runtime() is designed to be called multiple times safely
+        // 2. Our goal is "ensure a runtime exists", not "ensure OUR config is used"
+        // 3. If init_from() itself fails, the ? operator will propagate that error
+        let _already_initialized = ort::init_from(lib_path.display().to_string())
+            .map_err(|e| Error::RuntimeInit(e.to_string()))?
+            .commit();
     }
     // If no bundled library found, ort will try system paths automatically
     Ok(())

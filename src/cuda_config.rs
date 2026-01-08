@@ -30,7 +30,7 @@
 //! ```
 
 /// Re-export arena strategy from ort for user convenience
-pub use ort::execution_providers::ArenaExtendStrategy;
+pub use ort::ep::ArenaExtendStrategy;
 
 /// Configuration for CUDA execution provider
 ///
@@ -220,8 +220,8 @@ impl CUDAConfig {
     /// This is an internal method used by `ClassifierBuilder::with_cuda_config()`.
     pub(crate) fn apply_to(
         self,
-        provider: ort::execution_providers::CUDAExecutionProvider,
-    ) -> ort::execution_providers::CUDAExecutionProvider {
+        provider: ort::ep::CUDAExecutionProvider,
+    ) -> ort::ep::CUDAExecutionProvider {
         let mut p = provider;
 
         if let Some(limit) = self.memory_limit {

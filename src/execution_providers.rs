@@ -4,7 +4,7 @@
 //! providers are available at compile-time.
 
 use crate::types::ExecutionProviderInfo;
-use ort::execution_providers::{
+use ort::ep::{
     ACLExecutionProvider, ArmNNExecutionProvider, CUDAExecutionProvider, CoreMLExecutionProvider,
     DirectMLExecutionProvider, ExecutionProvider, OneDNNExecutionProvider,
     OpenVINOExecutionProvider, QNNExecutionProvider, ROCmExecutionProvider,
