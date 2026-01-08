@@ -144,7 +144,7 @@ enum Labels {
 pub struct RangeFilterBuilder {
     model_path: Option<String>,
     labels: Option<Labels>,
-    execution_providers: Vec<ort::execution_providers::ExecutionProviderDispatch>,
+    execution_providers: Vec<ort::ep::ExecutionProviderDispatch>,
     threshold: f32,
 }
 
@@ -201,7 +201,7 @@ impl RangeFilterBuilder {
     #[must_use]
     pub fn execution_provider(
         mut self,
-        provider: impl Into<ort::execution_providers::ExecutionProviderDispatch>,
+        provider: impl Into<ort::ep::ExecutionProviderDispatch>,
     ) -> Self {
         self.execution_providers.push(provider.into());
         self
@@ -279,11 +279,11 @@ impl RangeFilterBuilder {
 /// Extract output tensor shapes from session
 fn extract_output_shapes(session: &Session) -> Result<Vec<Vec<i64>>> {
     session
-        .outputs
+        .outputs()
         .iter()
         .map(|output| {
             let shape = output
-                .output_type
+                .dtype()
                 .tensor_shape()
                 .ok_or_else(|| Error::ModelDetection {
                     reason: "output is not a tensor".to_string(),

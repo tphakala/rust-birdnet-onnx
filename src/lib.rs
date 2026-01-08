@@ -108,4 +108,4 @@ pub use types::{
 };
 
 // Re-export ort execution providers module for convenience
-pub use ort::execution_providers as ort_execution_providers;
+pub use ort::ep as ort_execution_providers;

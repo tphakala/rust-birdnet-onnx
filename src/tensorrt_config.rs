@@ -315,8 +315,8 @@ impl TensorRTConfig {
     /// This is an internal method used by `ClassifierBuilder::with_tensorrt_config()`.
     pub(crate) fn apply_to(
         self,
-        provider: ort::execution_providers::TensorRTExecutionProvider,
-    ) -> ort::execution_providers::TensorRTExecutionProvider {
+        provider: ort::ep::TensorRTExecutionProvider,
+    ) -> ort::ep::TensorRTExecutionProvider {
         let mut p = provider;
 
         if let Some(v) = self.fp16 {

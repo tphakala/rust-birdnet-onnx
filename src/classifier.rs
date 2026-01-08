@@ -19,7 +19,7 @@ macro_rules! with_provider_method {
         #[doc = $doc]
         #[must_use]
         pub fn $fn_name(mut self) -> Self {
-            use ort::execution_providers::$provider_struct;
+            use ort::ep::$provider_struct;
             self.execution_providers
                 .push($provider_struct::default().into());
             // Only set requested_provider if it's still the default (CPU).
@@ -47,7 +47,7 @@ pub struct ClassifierBuilder {
     model_path: Option<String>,
     labels: Option<Labels>,
     model_type_override: Option<ModelType>,
-    execution_providers: Vec<ort::execution_providers::ExecutionProviderDispatch>,
+    execution_providers: Vec<ort::ep::ExecutionProviderDispatch>,
     requested_provider: ExecutionProviderInfo,
     top_k: usize,
     min_confidence: Option<f32>,
@@ -109,7 +109,7 @@ impl ClassifierBuilder {
     #[must_use]
     pub fn execution_provider(
         mut self,
-        provider: impl Into<ort::execution_providers::ExecutionProviderDispatch>,
+        provider: impl Into<ort::ep::ExecutionProviderDispatch>,
     ) -> Self {
         self.execution_providers.push(provider.into());
         self
@@ -183,7 +183,7 @@ impl ClassifierBuilder {
     /// ```
     #[must_use]
     pub fn with_cuda_config(mut self, config: crate::cuda_config::CUDAConfig) -> Self {
-        use ort::execution_providers::CUDAExecutionProvider;
+        use ort::ep::CUDAExecutionProvider;
 
         let provider = config.apply_to(CUDAExecutionProvider::default());
         self.execution_providers.push(provider.into());
@@ -260,7 +260,7 @@ impl ClassifierBuilder {
     /// ```
     #[must_use]
     pub fn with_tensorrt_config(mut self, config: crate::tensorrt_config::TensorRTConfig) -> Self {
-        use ort::execution_providers::TensorRTExecutionProvider;
+        use ort::ep::TensorRTExecutionProvider;
 
         let provider = config.apply_to(TensorRTExecutionProvider::default());
         self.execution_providers.push(provider.into());
@@ -386,14 +386,14 @@ impl ClassifierBuilder {
 /// Extract input tensor shape from session
 fn extract_input_shape(session: &Session) -> Result<Vec<i64>> {
     let inputs = session
-        .inputs
+        .inputs()
         .first()
         .ok_or_else(|| Error::ModelDetection {
             reason: "model has no inputs".to_string(),
         })?;
 
     let shape = inputs
-        .input_type
+        .dtype()
         .tensor_shape()
         .ok_or_else(|| Error::ModelDetection {
             reason: "input is not a tensor".to_string(),
@@ -405,11 +405,11 @@ fn extract_input_shape(session: &Session) -> Result<Vec<i64>> {
 /// Extract output tensor shapes from session
 fn extract_output_shapes(session: &Session) -> Result<Vec<Vec<i64>>> {
     session
-        .outputs
+        .outputs()
         .iter()
         .map(|output| {
             let shape = output
-                .output_type
+                .dtype()
                 .tensor_shape()
                 .ok_or_else(|| Error::ModelDetection {
                     reason: "output is not a tensor".to_string(),
@@ -1177,7 +1177,7 @@ mod tests {
 
     #[test]
     fn test_builder_multiple_execution_providers() {
-        use ort::execution_providers::CPUExecutionProvider;
+        use ort::ep::CPUExecutionProvider;
 
         let builder = ClassifierBuilder::new()
             .execution_provider(CPUExecutionProvider::default())
