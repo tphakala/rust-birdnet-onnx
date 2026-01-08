@@ -5,8 +5,10 @@
 
 use birdnet_onnx::{
     BatchInferenceContext, CancellationToken, Classifier, ExecutionProviderInfo, InferenceOptions,
-    ModelType, Result, available_execution_providers, find_ort_library, init_runtime,
+    ModelType, Result, available_execution_providers,
 };
+#[cfg(feature = "load-dynamic")]
+use birdnet_onnx::{find_ort_library, init_runtime};
 use clap::Parser;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -151,62 +153,73 @@ const fn provider_description(provider: ExecutionProviderInfo) -> &'static str {
 }
 
 /// List all execution providers and exit.
+#[allow(clippy::unnecessary_wraps)] // Returns Result for load-dynamic feature
 fn list_providers_and_exit() -> Result<()> {
-    // Initialize ONNX Runtime first (required for available_execution_providers)
-    if let Err(e) = init_runtime() {
-        eprintln!("Error initializing ONNX Runtime: {e}");
-        eprintln!();
-        #[cfg(target_os = "windows")]
-        {
-            eprintln!("Windows DLL search order for onnxruntime.dll:");
-            if let Ok(exe_path) = std::env::current_exe() {
-                if let Some(exe_dir) = exe_path.parent() {
-                    eprintln!("  1. Exe directory: {}\\onnxruntime.dll", exe_dir.display());
-                }
-            }
-            if let Ok(cwd) = std::env::current_dir() {
-                eprintln!("  2. Current directory: {}\\onnxruntime.dll", cwd.display());
-            }
-            eprintln!("  3. System directory: C:\\Windows\\System32\\onnxruntime.dll");
-            eprintln!("  4. Windows directory: C:\\Windows\\onnxruntime.dll");
-            eprintln!("  5. Directories in PATH environment variable");
+    // Dynamic loading: Initialize ONNX Runtime and show library path
+    #[cfg(feature = "load-dynamic")]
+    {
+        if let Err(e) = init_runtime() {
+            eprintln!("Error initializing ONNX Runtime: {e}");
             eprintln!();
-            eprintln!("To search your entire system:");
-            eprintln!(
-                "  Get-ChildItem -Path C:\\ -Filter onnxruntime.dll -Recurse -ErrorAction SilentlyContinue"
-            );
+            #[cfg(target_os = "windows")]
+            {
+                eprintln!("Windows DLL search order for onnxruntime.dll:");
+                if let Ok(exe_path) = std::env::current_exe() {
+                    if let Some(exe_dir) = exe_path.parent() {
+                        eprintln!("  1. Exe directory: {}\\onnxruntime.dll", exe_dir.display());
+                    }
+                }
+                if let Ok(cwd) = std::env::current_dir() {
+                    eprintln!("  2. Current directory: {}\\onnxruntime.dll", cwd.display());
+                }
+                eprintln!("  3. System directory: C:\\Windows\\System32\\onnxruntime.dll");
+                eprintln!("  4. Windows directory: C:\\Windows\\onnxruntime.dll");
+                eprintln!("  5. Directories in PATH environment variable");
+                eprintln!();
+                eprintln!("To search your entire system:");
+                eprintln!(
+                    "  Get-ChildItem -Path C:\\ -Filter onnxruntime.dll -Recurse -ErrorAction SilentlyContinue"
+                );
+            }
+            return Err(e);
         }
-        return Err(e);
+
+        // Show ONNX Runtime library path for debugging
+        if let Some(lib_path) = find_ort_library() {
+            println!("ONNX Runtime library: {}", lib_path.display());
+        } else {
+            println!("ONNX Runtime library: <using system library paths>");
+            #[cfg(target_os = "windows")]
+            {
+                println!("  Note: On Windows, this searches the PATH for onnxruntime.dll");
+                println!("  To find the current location, use: where onnxruntime.dll");
+            }
+            #[cfg(target_os = "linux")]
+            {
+                println!(
+                    "  Note: On Linux, this searches paths in /etc/ld.so.conf and the LD_LIBRARY_PATH environment variable."
+                );
+                println!("  To find the library, you can try: ldconfig -p | grep onnxruntime");
+            }
+            #[cfg(target_os = "macos")]
+            {
+                println!(
+                    "  Note: On macOS, this searches standard paths and the DYLD_LIBRARY_PATH environment variable."
+                );
+                println!(
+                    "  To find the library, you can try: find /usr/local /opt -name \"libonnxruntime.dylib\" 2>/dev/null"
+                );
+            }
+        }
+        println!();
     }
 
-    // Show ONNX Runtime library path for debugging
-    if let Some(lib_path) = find_ort_library() {
-        println!("ONNX Runtime library: {}", lib_path.display());
-    } else {
-        println!("ONNX Runtime library: <using system library paths>");
-        #[cfg(target_os = "windows")]
-        {
-            println!("  Note: On Windows, this searches the PATH for onnxruntime.dll");
-            println!("  To find the current location, use: where onnxruntime.dll");
-        }
-        #[cfg(target_os = "linux")]
-        {
-            println!(
-                "  Note: On Linux, this searches paths in /etc/ld.so.conf and the LD_LIBRARY_PATH environment variable."
-            );
-            println!("  To find the library, you can try: ldconfig -p | grep onnxruntime");
-        }
-        #[cfg(target_os = "macos")]
-        {
-            println!(
-                "  Note: On macOS, this searches standard paths and the DYLD_LIBRARY_PATH environment variable."
-            );
-            println!(
-                "  To find the library, you can try: find /usr/local /opt -name \"libonnxruntime.dylib\" 2>/dev/null"
-            );
-        }
+    // Static linking: ONNX Runtime is embedded in the binary
+    #[cfg(not(feature = "load-dynamic"))]
+    {
+        println!("ONNX Runtime library: <statically linked>");
+        println!();
     }
-    println!();
 
     let available = available_execution_providers();
 
@@ -283,18 +296,23 @@ fn run_with_args(args: Args) -> Result<()> {
             "{} [DEBUG] Verbose logging enabled (RUST_LOG=ort=debug)",
             timestamp()
         );
-        eprintln!("{} [DEBUG] Initializing ONNX Runtime...", timestamp());
     }
 
-    // Initialize ONNX Runtime (auto-detects bundled libraries)
-    let init_start = Instant::now();
-    init_runtime()?;
-    if args.verbose {
-        eprintln!(
-            "{} [DEBUG] ONNX Runtime initialized in {:?}",
-            timestamp(),
-            init_start.elapsed()
-        );
+    // Initialize ONNX Runtime (only needed for dynamic loading)
+    #[cfg(feature = "load-dynamic")]
+    {
+        if args.verbose {
+            eprintln!("{} [DEBUG] Initializing ONNX Runtime...", timestamp());
+        }
+        let init_start = Instant::now();
+        init_runtime()?;
+        if args.verbose {
+            eprintln!(
+                "{} [DEBUG] ONNX Runtime initialized in {:?}",
+                timestamp(),
+                init_start.elapsed()
+            );
+        }
     }
 
     // Parse and validate execution provider

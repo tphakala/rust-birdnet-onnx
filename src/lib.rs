@@ -83,6 +83,7 @@ mod inference_options;
 mod labels;
 mod postprocess;
 mod rangefilter;
+#[cfg(feature = "load-dynamic")]
 mod runtime;
 pub mod tensorrt_config;
 #[cfg(test)]
@@ -98,6 +99,7 @@ pub use inference_options::{CancellationToken, InferenceOptions};
 pub use rangefilter::{
     RangeFilter, RangeFilterBuilder, calculate_week, validate_coordinates, validate_date,
 };
+#[cfg(feature = "load-dynamic")]
 pub use runtime::{find_ort_library, init_runtime};
 pub use tensorrt_config::TensorRTConfig;
 pub use types::{
