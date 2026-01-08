@@ -95,6 +95,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Publish
+        continue-on-error: true  # Don't fail if version already exists
         run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   # Build binaries for multiple platforms
