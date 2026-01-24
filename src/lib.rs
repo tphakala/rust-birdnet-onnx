@@ -89,6 +89,7 @@ pub mod tensorrt_config;
 #[cfg(test)]
 pub mod testutil;
 mod types;
+pub mod xnnpack_config;
 
 pub use batch_context::BatchInferenceContext;
 pub use classifier::{Classifier, ClassifierBuilder};
@@ -106,6 +107,7 @@ pub use types::{
     ExecutionProviderInfo, LabelFormat, LocationScore, ModelConfig, ModelType, Prediction,
     PredictionResult,
 };
+pub use xnnpack_config::XNNPACKConfig;
 
 // Re-export ort execution providers module for convenience
 pub use ort::ep as ort_execution_providers;

@@ -33,6 +33,7 @@ const ALL_EXECUTION_PROVIDERS: &[ExecutionProviderInfo] = &[
     ExecutionProviderInfo::Qnn,
     ExecutionProviderInfo::Acl,
     ExecutionProviderInfo::ArmNn,
+    ExecutionProviderInfo::Xnnpack,
 ];
 
 /// Default batch size for CPU inference (conservative for cache efficiency).
@@ -78,7 +79,7 @@ struct Args {
     #[arg(long)]
     list_providers: bool,
 
-    /// Execution provider to use (cpu, cuda, tensorrt, directml, coreml, rocm, openvino, onednn, qnn, acl, armnn)
+    /// Execution provider to use (cpu, cuda, tensorrt, directml, coreml, rocm, openvino, onednn, qnn, acl, armnn, xnnpack)
     #[arg(long, default_value = "cpu")]
     provider: String,
 
@@ -149,6 +150,8 @@ const fn provider_description(provider: ExecutionProviderInfo) -> &'static str {
         ExecutionProviderInfo::Qnn => "Qualcomm NPU acceleration",
         ExecutionProviderInfo::Acl => "Arm CPU optimization",
         ExecutionProviderInfo::ArmNn => "Arm NPU acceleration",
+        ExecutionProviderInfo::Xnnpack => "Optimized CPU inference (ARM/x86)",
+        _ => "Hardware acceleration",
     }
 }
 
@@ -334,12 +337,10 @@ fn run_with_args(args: Args) -> Result<()> {
     }
 
     // Determine batch size based on provider
-    let batch_size = args.batch_size.unwrap_or_else(|| {
-        if requested_provider == ExecutionProviderInfo::Cpu {
-            DEFAULT_CPU_BATCH_SIZE
-        } else {
-            DEFAULT_GPU_BATCH_SIZE
-        }
+    // XNNPACK is CPU-based, so use CPU batch size for better cache locality
+    let batch_size = args.batch_size.unwrap_or(match requested_provider {
+        ExecutionProviderInfo::Cpu | ExecutionProviderInfo::Xnnpack => DEFAULT_CPU_BATCH_SIZE,
+        _ => DEFAULT_GPU_BATCH_SIZE,
     });
 
     // Parse model type override if provided
@@ -385,9 +386,8 @@ fn run_with_args(args: Args) -> Result<()> {
         builder = builder.model_type(mt);
     }
 
-    // Configure execution provider
+    // Configure execution provider (CPU uses default, caught by wildcard)
     builder = match requested_provider {
-        ExecutionProviderInfo::Cpu => builder, // CPU is default, no need to add
         ExecutionProviderInfo::Cuda => builder.with_cuda(),
         ExecutionProviderInfo::TensorRt => builder.with_tensorrt(),
         ExecutionProviderInfo::DirectMl => builder.execution_provider(
@@ -414,6 +414,9 @@ fn run_with_args(args: Args) -> Result<()> {
         ExecutionProviderInfo::ArmNn => builder.execution_provider(
             birdnet_onnx::ort_execution_providers::ArmNNExecutionProvider::default(),
         ),
+        ExecutionProviderInfo::Xnnpack => builder.with_xnnpack(),
+        // Future providers: fall back to CPU
+        _ => builder,
     };
 
     let classifier = builder.build()?;
@@ -465,13 +468,11 @@ fn run_with_args(args: Args) -> Result<()> {
     }
 
     // Create batch context for GPU providers (enables memory reuse via IoBinding)
-    // Falls back to regular predict_batch for CPU or unsupported models (PerchV2)
-    let mut batch_context: Option<BatchInferenceContext> = if requested_provider
-        == ExecutionProviderInfo::Cpu
-    {
-        None
-    } else {
-        match classifier.create_batch_context(batch_size) {
+    // Falls back to regular predict_batch for CPU, XNNPACK, or unsupported models (PerchV2)
+    // Note: XNNPACK is CPU-based, so IoBinding provides no benefit (no PCIe transfer savings)
+    let mut batch_context: Option<BatchInferenceContext> = match requested_provider {
+        ExecutionProviderInfo::Cpu | ExecutionProviderInfo::Xnnpack => None,
+        _ => match classifier.create_batch_context(batch_size) {
             Ok(ctx) => {
                 if args.verbose {
                     let buffer_bytes = ctx.input_buffer_bytes();
@@ -495,7 +496,7 @@ fn run_with_args(args: Args) -> Result<()> {
                 }
                 None
             }
-        }
+        },
     };
 
     // Print header

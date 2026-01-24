@@ -120,6 +120,7 @@ pub struct LocationScore {
 }
 
 /// Information about execution providers (hardware backends).
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExecutionProviderInfo {
     /// CPU execution provider (always available).
@@ -144,6 +145,8 @@ pub enum ExecutionProviderInfo {
     Acl,
     /// Arm NN execution provider.
     ArmNn,
+    /// XNNPACK execution provider (optimized CPU for ARM/x86).
+    Xnnpack,
 }
 
 impl ExecutionProviderInfo {
@@ -162,6 +165,7 @@ impl ExecutionProviderInfo {
             Self::Qnn => "QNN",
             Self::Acl => "ACL",
             Self::ArmNn => "ArmNN",
+            Self::Xnnpack => "XNNPACK",
         }
     }
 
@@ -173,7 +177,9 @@ impl ExecutionProviderInfo {
             Self::Cuda | Self::TensorRt | Self::Rocm | Self::DirectMl => "GPU",
             Self::CoreMl => "Neural Engine",
             Self::Qnn => "NPU",
-            Self::OpenVino | Self::OneDnn | Self::Acl | Self::ArmNn => "Accelerator",
+            Self::OpenVino | Self::OneDnn | Self::Acl | Self::ArmNn | Self::Xnnpack => {
+                "Accelerator"
+            }
         }
     }
 }
@@ -259,6 +265,7 @@ mod tests {
         assert_eq!(ExecutionProviderInfo::Qnn.to_string(), "QNN");
         assert_eq!(ExecutionProviderInfo::Acl.to_string(), "ACL");
         assert_eq!(ExecutionProviderInfo::ArmNn.to_string(), "ArmNN");
+        assert_eq!(ExecutionProviderInfo::Xnnpack.to_string(), "XNNPACK");
     }
 
     #[test]
@@ -290,5 +297,6 @@ mod tests {
         assert_eq!(ExecutionProviderInfo::OneDnn.category(), "Accelerator");
         assert_eq!(ExecutionProviderInfo::Acl.category(), "Accelerator");
         assert_eq!(ExecutionProviderInfo::ArmNn.category(), "Accelerator");
+        assert_eq!(ExecutionProviderInfo::Xnnpack.category(), "Accelerator");
     }
 }

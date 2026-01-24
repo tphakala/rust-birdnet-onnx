@@ -320,6 +320,33 @@ impl ClassifierBuilder {
         ArmNn,
         "Request `ArmNN` execution provider (Arm Neural Network)"
     );
+    with_provider_method!(
+        with_xnnpack,
+        XNNPACK,
+        Xnnpack,
+        "Request XNNPACK execution provider (optimized CPU for ARM/x86)"
+    );
+
+    /// Configure XNNPACK with custom settings.
+    ///
+    /// Use this method when you need to control XNNPACK's internal threadpool.
+    /// For most use cases, [`with_xnnpack()`](Self::with_xnnpack) provides good defaults.
+    ///
+    /// See [`XNNPACKConfig`](crate::XNNPACKConfig) for configuration options and
+    /// threading recommendations.
+    #[must_use]
+    pub fn with_xnnpack_config(mut self, config: crate::xnnpack_config::XNNPACKConfig) -> Self {
+        use ort::ep::XNNPACK;
+
+        let provider = config.apply_to(XNNPACK::default());
+        self.execution_providers.push(provider.into());
+
+        if self.requested_provider == ExecutionProviderInfo::Cpu {
+            self.requested_provider = ExecutionProviderInfo::Xnnpack;
+        }
+
+        self
+    }
 
     /// Build the classifier
     ///
@@ -1078,6 +1105,7 @@ fn extract_tensor_data(outputs: &ort::session::SessionOutputs, index: usize) -> 
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     #![allow(clippy::disallowed_methods)]
     use super::*;
 
@@ -1464,11 +1492,30 @@ mod tests {
             .with_onednn()
             .with_qnn()
             .with_acl()
-            .with_armnn();
+            .with_armnn()
+            .with_xnnpack();
 
         // First non-CPU provider wins (aligns with ort's provider priority)
         assert_eq!(builder.requested_provider, ExecutionProviderInfo::Cuda);
-        // All 10 providers added
-        assert_eq!(builder.execution_providers.len(), 10);
+        // All 11 providers added
+        assert_eq!(builder.execution_providers.len(), 11);
+    }
+
+    #[test]
+    fn test_with_xnnpack_sets_requested_provider() {
+        let builder = ClassifierBuilder::new().with_xnnpack();
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Xnnpack);
+        assert_eq!(builder.execution_providers.len(), 1);
+    }
+
+    #[test]
+    fn test_with_xnnpack_config_sets_requested_provider() {
+        use crate::XNNPACKConfig;
+        use core::num::NonZeroUsize;
+
+        let config = XNNPACKConfig::new().with_intra_op_num_threads(NonZeroUsize::new(4).unwrap());
+        let builder = ClassifierBuilder::new().with_xnnpack_config(config);
+        assert_eq!(builder.requested_provider, ExecutionProviderInfo::Xnnpack);
+        assert_eq!(builder.execution_providers.len(), 1);
     }
 }
