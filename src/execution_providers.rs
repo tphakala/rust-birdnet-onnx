@@ -8,7 +8,7 @@ use ort::ep::{
     ACLExecutionProvider, ArmNNExecutionProvider, CUDAExecutionProvider, CoreMLExecutionProvider,
     DirectMLExecutionProvider, ExecutionProvider, OneDNNExecutionProvider,
     OpenVINOExecutionProvider, QNNExecutionProvider, ROCmExecutionProvider,
-    TensorRTExecutionProvider,
+    TensorRTExecutionProvider, XNNPACK,
 };
 
 /// Returns a list of execution providers available at compile-time.
@@ -53,6 +53,7 @@ pub fn available_execution_providers() -> Vec<ExecutionProviderInfo> {
     check_provider!(QNNExecutionProvider, ExecutionProviderInfo::Qnn);
     check_provider!(ACLExecutionProvider, ExecutionProviderInfo::Acl);
     check_provider!(ArmNNExecutionProvider, ExecutionProviderInfo::ArmNn);
+    check_provider!(XNNPACK, ExecutionProviderInfo::Xnnpack);
 
     providers
 }
