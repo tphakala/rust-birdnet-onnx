@@ -480,6 +480,21 @@ fn run_with_args(args: Args) -> Result<()> {
         if let (Some(lat), Some(lon), Some(day)) = (args.lat, args.lon, args.day_of_year) {
             Some((lat, lon, day))
         } else {
+            // Warn if user provided partial SDM parameters
+            let count = [
+                args.lat.is_some(),
+                args.lon.is_some(),
+                args.day_of_year.is_some(),
+            ]
+            .iter()
+            .filter(|&&v| v)
+            .count();
+            if count > 0 && count < 3 {
+                eprintln!(
+                    "Warning: SDM adjustment requires --lat, --lon, and --day-of-year \
+                     ({count} of 3 provided); falling back to calibration only"
+                );
+            }
             None
         };
 

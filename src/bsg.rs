@@ -576,8 +576,10 @@ impl BsgPostProcessor {
 
     /// Apply per-species logistic calibration to predictions.
     ///
-    /// Builds predictions from raw scores using the BSG labels loaded at build time,
-    /// ignoring the classifier's top-k predictions.
+    /// Rebuilds all predictions from `raw_scores` with calibrated confidence values,
+    /// filtered to `confidence > 0.0`. The classifier's `top_k` and `min_confidence`
+    /// are intentionally bypassed because calibration changes the score ranking —
+    /// callers should apply their own filtering to the returned result.
     ///
     /// # Errors
     ///
