@@ -132,6 +132,14 @@ fn build_config_with_override(
                 extract_last_dim(&output_shapes[3])?, // predictions at index 3
             )
         }
+        ModelType::BsgFinland => {
+            if output_shapes.len() != 1 {
+                return Err(Error::ModelDetection {
+                    reason: format!("BSG Finland expects 1 output, got {}", output_shapes.len()),
+                });
+            }
+            (None, extract_last_dim(&output_shapes[0])?)
+        }
     };
 
     Ok(ModelConfig {

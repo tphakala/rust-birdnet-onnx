@@ -37,9 +37,10 @@ pub fn mock_config(model_type: ModelType) -> ModelConfig {
             ModelType::BirdNetV24 => 6522,
             ModelType::BirdNetV30 => 1000,
             ModelType::PerchV2 => 500,
+            ModelType::BsgFinland => 265,
         },
         embedding_dim: match model_type {
-            ModelType::BirdNetV24 => None,
+            ModelType::BirdNetV24 | ModelType::BsgFinland => None,
             ModelType::BirdNetV30 => Some(1024),
             ModelType::PerchV2 => Some(512),
         },
@@ -76,7 +77,7 @@ pub fn mock_labels(count: usize) -> Vec<String> {
 #[must_use]
 pub fn mock_prediction_result(model_type: ModelType) -> PredictionResult {
     let embeddings = match model_type {
-        ModelType::BirdNetV24 => None,
+        ModelType::BirdNetV24 | ModelType::BsgFinland => None,
         ModelType::BirdNetV30 => Some(vec![0.1f32; 1024]),
         ModelType::PerchV2 => Some(vec![0.1f32; 512]),
     };

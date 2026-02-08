@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **BSG Finland model support** ([BSG](https://github.com/luomus/BSG))
+  - New `ModelType::BsgFinland` for the fused BirdNET v2.4 + Finnish classification head (265 species)
+  - Pre-sigmoided output handling (no double-sigmoid)
+  - `BsgPostProcessor` with per-species logistic calibration (Platt scaling)
+  - Species Distribution Model (SDM) adjustment using migration curves and geographic distribution maps
+  - CLI flags: `--calibration`, `--migration`, `--distribution-maps`, `--lat`, `--lon`, `--day-of-year`, `--csv`
+
 ## [2.0.0-rc.1] - 2026-01-04
 
 ### Changed

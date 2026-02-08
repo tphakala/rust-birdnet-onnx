@@ -4,8 +4,8 @@
 #![allow(clippy::print_stderr)] // CLI tool needs stderr
 
 use birdnet_onnx::{
-    BatchInferenceContext, CancellationToken, Classifier, ExecutionProviderInfo, InferenceOptions,
-    ModelType, Result, available_execution_providers,
+    BatchInferenceContext, BsgPostProcessor, CancellationToken, Classifier, ExecutionProviderInfo,
+    InferenceOptions, ModelType, Result, available_execution_providers,
 };
 #[cfg(feature = "load-dynamic")]
 use birdnet_onnx::{find_ort_library, init_runtime};
@@ -71,7 +71,7 @@ struct Args {
     #[arg(long, default_value = "0.1")]
     min_confidence: f32,
 
-    /// Override model type detection (v24, v30, perch)
+    /// Override model type detection (v24, v30, perch, bsg)
     #[arg(long)]
     model_type: Option<String>,
 
@@ -91,6 +91,34 @@ struct Args {
     #[arg(short, long, default_value = "1")]
     timeout: u64,
 
+    /// BSG calibration CSV file (applies per-species logistic calibration)
+    #[arg(long)]
+    calibration: Option<PathBuf>,
+
+    /// BSG migration CSV file (needed for SDM adjustment)
+    #[arg(long)]
+    migration: Option<PathBuf>,
+
+    /// BSG distribution maps binary file (needed for SDM adjustment)
+    #[arg(long)]
+    distribution_maps: Option<PathBuf>,
+
+    /// Latitude for SDM adjustment (requires --migration and --distribution-maps)
+    #[arg(long)]
+    lat: Option<f32>,
+
+    /// Longitude for SDM adjustment (requires --migration and --distribution-maps)
+    #[arg(long)]
+    lon: Option<f32>,
+
+    /// Day of year for SDM adjustment (1-366, requires --migration and --distribution-maps)
+    #[arg(long)]
+    day_of_year: Option<u32>,
+
+    /// Output CSV file path (if specified, writes results in CSV format)
+    #[arg(long)]
+    csv: Option<PathBuf>,
+
     /// Enable verbose logging for debugging
     #[arg(short, long)]
     verbose: bool,
@@ -102,8 +130,9 @@ fn parse_model_type(arg: Option<&str>) -> Result<Option<ModelType>> {
         Some("v24") => Ok(Some(ModelType::BirdNetV24)),
         Some("v30") => Ok(Some(ModelType::BirdNetV30)),
         Some("perch") => Ok(Some(ModelType::PerchV2)),
+        Some("bsg") => Ok(Some(ModelType::BsgFinland)),
         Some(other) => Err(birdnet_onnx::Error::ModelDetection {
-            reason: format!("unknown model type '{other}', expected: v24, v30, perch"),
+            reason: format!("unknown model type '{other}', expected: v24, v30, perch, bsg"),
         }),
         None => Ok(None),
     }
@@ -115,6 +144,7 @@ const fn model_display_name(model_type: ModelType) -> &'static str {
         ModelType::BirdNetV24 => "BirdNET v2.4",
         ModelType::BirdNetV30 => "BirdNET v3.0",
         ModelType::PerchV2 => "Perch v2",
+        ModelType::BsgFinland => "BSG Finland",
     }
 }
 
@@ -429,6 +459,45 @@ fn run_with_args(args: Args) -> Result<()> {
     }
     let config = classifier.config();
 
+    // Build BSG post-processor if calibration is provided
+    let bsg_processor = if let Some(ref cal_path) = args.calibration {
+        let mut bsg_builder = BsgPostProcessor::builder()
+            .labels_path(labels_path.display().to_string())
+            .calibration_path(cal_path.display().to_string());
+        if let Some(ref mig_path) = args.migration {
+            bsg_builder = bsg_builder.migration_path(mig_path.display().to_string());
+        }
+        if let Some(ref maps_path) = args.distribution_maps {
+            bsg_builder = bsg_builder.distribution_maps_path(maps_path.display().to_string());
+        }
+        Some(bsg_builder.build()?)
+    } else {
+        None
+    };
+
+    // Extract SDM coordinates if all three are provided
+    let sdm_params: Option<(f32, f32, u32)> =
+        if let (Some(lat), Some(lon), Some(day)) = (args.lat, args.lon, args.day_of_year) {
+            Some((lat, lon, day))
+        } else {
+            // Warn if user provided partial SDM parameters
+            let count = [
+                args.lat.is_some(),
+                args.lon.is_some(),
+                args.day_of_year.is_some(),
+            ]
+            .iter()
+            .filter(|&&v| v)
+            .count();
+            if count > 0 && count < 3 {
+                eprintln!(
+                    "Warning: SDM adjustment requires --lat, --lon, and --day-of-year \
+                     ({count} of 3 provided); falling back to calibration only"
+                );
+            }
+            None
+        };
+
     // Read WAV file
     if args.verbose {
         eprintln!(
@@ -558,6 +627,8 @@ fn run_with_args(args: Args) -> Result<()> {
 
     let start_time = Instant::now();
     let mut batch_num = 0;
+    let csv_output = args.csv.is_some();
+    let mut csv_rows: Vec<String> = Vec::new();
 
     // Process segments in batches for better GPU performance
     for batch_chunk in segments.chunks(batch_size) {
@@ -620,18 +691,46 @@ fn run_with_args(args: Args) -> Result<()> {
 
         // Process results with their corresponding time offsets
         for ((time_offset, _), result) in batch_chunk.iter().zip(results) {
-            if result.predictions.is_empty() {
+            // Apply BSG post-processing if configured
+            let processed = if let Some(ref bsg) = bsg_processor {
+                if let Some((lat, lon, day_of_year)) = sdm_params {
+                    bsg.process(&result, lat, lon, day_of_year)?
+                } else {
+                    bsg.calibrate(&result)?
+                }
+            } else {
+                result
+            };
+
+            if processed.predictions.is_empty() {
                 continue;
             }
 
-            // Format predictions
-            let preds: Vec<String> = result
-                .predictions
-                .iter()
-                .map(|p| format!("{} ({:.1}%)", p.species, p.confidence * 100.0))
-                .collect();
+            let start_secs = *time_offset;
+            let end_secs = start_secs + config.segment_duration;
 
-            println!("{}  {}", format_time(*time_offset), preds.join(", "));
+            // Output in CSV format or human-readable format
+            if csv_output {
+                for p in &processed.predictions {
+                    // Split species label: "Scientific name_common name" → separate fields
+                    let (scientific, common) = if let Some((sci, com)) = p.species.split_once('_') {
+                        (sci, com)
+                    } else {
+                        (p.species.as_str(), p.species.as_str())
+                    };
+                    csv_rows.push(format!(
+                        "{start_secs:.1},{end_secs:.1},{scientific},{common},{:.4}",
+                        p.confidence
+                    ));
+                }
+            } else {
+                let preds: Vec<String> = processed
+                    .predictions
+                    .iter()
+                    .map(|p| format!("{} ({:.1}%)", p.species, p.confidence * 100.0))
+                    .collect();
+                println!("{}  {}", format_time(start_secs), preds.join(", "));
+            }
         }
     }
 
@@ -641,6 +740,30 @@ fn run_with_args(args: Args) -> Result<()> {
     let segments_per_sec = segment_count as f32 / elapsed_secs;
     let audio_secs_per_sec = duration_secs / elapsed_secs;
     let audio_duration = format_duration(duration_secs);
+
+    // Write CSV output if requested
+    if csv_output {
+        let csv_path = args
+            .csv
+            .as_ref()
+            .ok_or_else(|| birdnet_onnx::Error::ModelDetection {
+                reason: "CSV output path not set".to_string(),
+            })?;
+        let mut content =
+            String::from("Start (s),End (s),Scientific name,Common name,Confidence\n");
+        for row in &csv_rows {
+            content.push_str(row);
+            content.push('\n');
+        }
+        std::fs::write(csv_path, &content).map_err(|e| birdnet_onnx::Error::ModelDetection {
+            reason: format!("failed to write CSV: {e}"),
+        })?;
+        eprintln!(
+            "Wrote {} detections to {}",
+            csv_rows.len(),
+            csv_path.display()
+        );
+    }
 
     println!();
     println!(
