@@ -86,6 +86,53 @@ pub fn top_k_predictions(
     predictions
 }
 
+/// Select top-K predictions from pre-sigmoided scores (already in `[0, 1]`).
+///
+/// Used for models like BSG Finland where sigmoid is baked into the ONNX graph.
+/// Same algorithm as [`top_k_predictions`] but skips the sigmoid transformation.
+pub fn top_k_predictions_presigmoid(
+    scores: &[f32],
+    labels: &[String],
+    top_k: usize,
+    min_confidence: Option<f32>,
+) -> Vec<Prediction> {
+    if scores.is_empty() || top_k == 0 {
+        return Vec::new();
+    }
+
+    let k = top_k.min(scores.len());
+
+    let mut heap: BinaryHeap<ScoreEntry> = BinaryHeap::with_capacity(k + 1);
+
+    for (index, &score) in scores.iter().enumerate() {
+        heap.push(ScoreEntry { index, score });
+        if heap.len() > k {
+            heap.pop();
+        }
+    }
+
+    let mut predictions: Vec<Prediction> = heap
+        .into_iter()
+        .map(|entry| Prediction {
+            species: labels
+                .get(entry.index)
+                .cloned()
+                .unwrap_or_else(|| format!("unknown_{}", entry.index)),
+            confidence: entry.score,
+            index: entry.index,
+        })
+        .filter(|p| min_confidence.is_none_or(|min| p.confidence >= min))
+        .collect();
+
+    predictions.sort_by(|a, b| {
+        b.confidence
+            .partial_cmp(&a.confidence)
+            .unwrap_or(Ordering::Equal)
+    });
+
+    predictions
+}
+
 /// Sigmoid activation function
 #[inline]
 pub fn sigmoid(x: f32) -> f32 {

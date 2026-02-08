@@ -9,24 +9,26 @@
 [![Rust](https://img.shields.io/badge/rust-1.92%2B-blue.svg)](https://www.rust-lang.org/)
 [![Sponsor](https://img.shields.io/badge/sponsor-GitHub-pink.svg)](https://github.com/sponsors/tphakala)
 
-A Rust library for running inference on BirdNET and Perch ONNX models with CUDA GPU support.
+A Rust library for running inference on BirdNET, Perch, and [BSG Finland](https://github.com/luomus/BSG) ONNX models with CUDA GPU support.
 
 ## Features
 
-- Support for BirdNET v2.4, v3.0, and Perch v2 models
+- Support for BirdNET v2.4, v3.0, Perch v2, and BSG Finland models
 - Automatic model type detection from ONNX tensor shapes
 - Thread-safe classifier with builder pattern
 - Top-K predictions with configurable confidence threshold
 - Batch inference for GPU efficiency
+- BSG Finland post-processing: per-species calibration and Species Distribution Model (SDM)
 - CLI tool for WAV file analysis
 
 ## Supported Models
 
-| Model | Sample Rate | Segment | Embeddings |
-|-------|-------------|---------|------------|
-| BirdNET v2.4 | 48 kHz | 3.0s | No |
-| BirdNET v3.0 | 32 kHz | 5.0s | 1024-dim |
-| Perch v2 | 32 kHz | 5.0s | Variable |
+| Model | Sample Rate | Segment | Embeddings | Notes |
+| ----- | ----------- | ------- | ---------- | ----- |
+| BirdNET v2.4 | 48 kHz | 3.0s | No | |
+| BirdNET v3.0 | 32 kHz | 5.0s | 1024-dim | |
+| Perch v2 | 32 kHz | 5.0s | Variable | |
+| [BSG Finland](https://github.com/luomus/BSG) | 48 kHz | 3.0s | No | 265 Finnish species, [fused model](https://huggingface.co/tphakala/BSG) |
 
 ## Installation
 
@@ -329,6 +331,59 @@ let filtered_batch = range_filter.filter_batch_predictions(
 );
 ```
 
+## BSG Finland Model
+
+The [BSG](https://github.com/luomus/BSG) (Bird Survey Group) Finland model uses a BirdNET v2.4 backbone with a custom classification head for 265 Finnish bird species, developed by the Finnish Museum of Natural History (Luomus). The [fused ONNX model](https://huggingface.co/tphakala/BSG) combines the BirdNET backbone and BSG classification head into a single end-to-end model with a sigmoid output layer.
+
+Since the fused model shares the same input shape as BirdNET v2.4 (144,000 samples), auto-detection cannot distinguish them. Use `ModelType::BsgFinland` explicitly:
+
+```rust
+use birdnet_onnx::{Classifier, ModelType, InferenceOptions, BsgPostProcessor};
+
+// Build classifier with BSG model type
+let classifier = Classifier::builder()
+    .model_path("BSG_birds_Finland_v4_4_fused_fp32.onnx")
+    .labels_path("BSG_birds_Finland_v4_4_labels_fi.txt")
+    .model_type(ModelType::BsgFinland)
+    .build()?;
+
+// Build BSG post-processor for calibration and SDM
+let bsg = BsgPostProcessor::builder()
+    .labels_path("BSG_birds_Finland_v4_4_labels_fi.txt")
+    .calibration_path("BSG_calibration.csv")
+    .migration_path("BSG_migration.csv")               // optional, needed for SDM
+    .distribution_maps_path("BSG_distribution_maps.bin") // optional, needed for SDM
+    .build()?;
+
+let result = classifier.predict(&segment, &InferenceOptions::default())?;
+
+// Apply calibration only (no location data needed)
+let calibrated = bsg.calibrate(&result)?;
+
+// Or apply calibration + SDM adjustment (requires location and date)
+let adjusted = bsg.process(&result, 60.17, 24.94, 150)?;
+```
+
+### CLI with BSG
+
+```bash
+# Calibration only
+birdnet-analyze recording.wav \
+    -m BSG_fused.onnx -l BSG_labels.txt \
+    --model-type bsg \
+    --calibration BSG_calibration.csv
+
+# Calibration + SDM
+birdnet-analyze recording.wav \
+    -m BSG_fused.onnx -l BSG_labels.txt \
+    --model-type bsg \
+    --calibration BSG_calibration.csv \
+    --migration BSG_migration.csv \
+    --distribution-maps BSG_distribution_maps.bin \
+    --lat 60.17 --lon 24.94 --day-of-year 150 \
+    --csv results.csv
+```
+
 ## Development
 
 Requires [Task](https://taskfile.dev/) runner:
@@ -348,6 +403,7 @@ This library provides Rust bindings for running inference on models from these p
 
 - [BirdNET-Analyzer](https://github.com/birdnet-team/BirdNET-Analyzer) - Bird sound identification by the K. Lisa Yang Center for Conservation Bioacoustics at the Cornell Lab of Ornithology and Chemnitz University of Technology
 - [Perch](https://github.com/google-research/perch) - Bioacoustics research by Google Research
+- [BSG Finland](https://github.com/luomus/BSG) - Finnish bird species classifier by the Finnish Museum of Natural History (Luomus)
 
 Built with:
 

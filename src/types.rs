@@ -7,6 +7,9 @@ pub enum ModelType {
     BirdNetV30,
     /// Google `Perch` v2 - 32kHz, 5s segments, variable embeddings.
     PerchV2,
+    /// BSG Finland - Fused `BirdNET` v2.4 backbone + Finnish classification head.
+    /// 48kHz, 3s segments, output is pre-sigmoided (no post-sigmoid needed).
+    BsgFinland,
 }
 
 impl ModelType {
@@ -14,7 +17,7 @@ impl ModelType {
     #[must_use]
     pub const fn sample_rate(&self) -> u32 {
         match self {
-            Self::BirdNetV24 => 48_000,
+            Self::BirdNetV24 | Self::BsgFinland => 48_000,
             Self::BirdNetV30 | Self::PerchV2 => 32_000,
         }
     }
@@ -23,7 +26,7 @@ impl ModelType {
     #[must_use]
     pub const fn segment_duration(&self) -> f32 {
         match self {
-            Self::BirdNetV24 => 3.0,
+            Self::BirdNetV24 | Self::BsgFinland => 3.0,
             Self::BirdNetV30 | Self::PerchV2 => 5.0,
         }
     }
@@ -32,7 +35,7 @@ impl ModelType {
     #[must_use]
     pub const fn sample_count(&self) -> usize {
         match self {
-            Self::BirdNetV24 => 144_000,
+            Self::BirdNetV24 | Self::BsgFinland => 144_000,
             Self::BirdNetV30 | Self::PerchV2 => 160_000,
         }
     }
@@ -41,16 +44,22 @@ impl ModelType {
     #[must_use]
     pub const fn has_embeddings(&self) -> bool {
         match self {
-            Self::BirdNetV24 => false,
+            Self::BirdNetV24 | Self::BsgFinland => false,
             Self::BirdNetV30 | Self::PerchV2 => true,
         }
+    }
+
+    /// Whether model output is already sigmoided (no post-sigmoid needed).
+    #[must_use]
+    pub const fn output_is_sigmoid(&self) -> bool {
+        matches!(self, Self::BsgFinland)
     }
 
     /// Expected label file format for this model type.
     #[must_use]
     pub const fn expected_label_format(&self) -> LabelFormat {
         match self {
-            Self::BirdNetV24 => LabelFormat::Text,
+            Self::BirdNetV24 | Self::BsgFinland => LabelFormat::Text,
             Self::BirdNetV30 | Self::PerchV2 => LabelFormat::Csv,
         }
     }

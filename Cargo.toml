@@ -1,9 +1,9 @@
 [package]
 name = "birdnet-onnx"
-version = "2.0.0-rc.6"
+version = "2.0.0-rc.7"
 edition = "2024"
 rust-version = "1.92"
-description = "Bird species detection using BirdNET and Perch ONNX models"
+description = "Bird species detection using BirdNET, Perch, and BSG Finland ONNX models"
 license = "MIT"
 repository = "https://github.com/tphakala/rust-birdnet-onnx"
 readme = "README.md"

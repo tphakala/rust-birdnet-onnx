@@ -64,6 +64,7 @@ use std::sync::MutexGuard;
 /// Currently supports:
 /// - `BirdNET` v2.4 (1 output)
 /// - `BirdNET` v3.0 (2 outputs)
+/// - BSG Finland (1 output, pre-sigmoided)
 ///
 /// `Perch` v2 is not yet supported due to its complex 4-output structure.
 #[derive(Debug)]
@@ -243,7 +244,7 @@ impl BatchInferenceContext {
         .map_err(|e| Error::Inference(format!("failed to create memory info: {e}")))?;
 
         match self.model_type {
-            ModelType::BirdNetV24 => {
+            ModelType::BirdNetV24 | ModelType::BsgFinland => {
                 // Single output: logits
                 self.io_binding
                     .bind_output_to_device("output", &mem_info)
@@ -292,7 +293,7 @@ impl BatchInferenceContext {
         batch_size: usize,
     ) -> Result<(Option<Vec<f32>>, Vec<f32>)> {
         match self.model_type {
-            ModelType::BirdNetV24 => {
+            ModelType::BirdNetV24 | ModelType::BsgFinland => {
                 let logits =
                     Self::extract_tensor_data(outputs, "output", batch_size * self.num_species)?;
                 Ok((None, logits))

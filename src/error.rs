@@ -106,6 +106,25 @@ pub enum Error {
     #[error("inference was cancelled")]
     Cancelled,
 
+    /// Failed to load BSG calibration data.
+    #[error("BSG calibration file error: {0}")]
+    BsgCalibrationLoad(String),
+
+    /// Failed to load BSG distribution maps.
+    #[error("BSG distribution maps error: {0}")]
+    BsgMapsLoad(String),
+
+    /// BSG post-processing failed.
+    #[error("BSG post-processing failed: {0}")]
+    BsgProcessing(String),
+
+    /// Invalid day of year.
+    #[error("invalid day of year: {day_of_year} (must be 1-366)")]
+    InvalidDayOfYear {
+        /// Day of year value.
+        day_of_year: u32,
+    },
+
     /// Failed to initialize ONNX Runtime.
     #[error("failed to initialize ONNX Runtime: {0}")]
     RuntimeInit(String),

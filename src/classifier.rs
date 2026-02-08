@@ -4,7 +4,7 @@ use crate::detection::detect_model_type;
 use crate::error::{Error, Result};
 use crate::inference_options::InferenceOptions;
 use crate::labels::load_labels_from_file;
-use crate::postprocess::top_k_predictions;
+use crate::postprocess::{top_k_predictions, top_k_predictions_presigmoid};
 use crate::types::{ExecutionProviderInfo, ModelConfig, ModelType, PredictionResult};
 use ndarray::Array2;
 use ort::session::{RunOptions, Session};
@@ -905,6 +905,7 @@ impl Classifier {
         let model_type = self.inner.config.model_type;
         let num_species = self.inner.config.num_species;
         let embedding_dim = self.inner.config.embedding_dim;
+        let is_presigmoid = model_type.output_is_sigmoid();
 
         (0..batch_size)
             .map(|i| {
@@ -920,12 +921,21 @@ impl Classifier {
                     })
                 });
 
-                let predictions = top_k_predictions(
-                    logits,
-                    &self.inner.labels,
-                    self.inner.top_k,
-                    self.inner.min_confidence,
-                );
+                let predictions = if is_presigmoid {
+                    top_k_predictions_presigmoid(
+                        logits,
+                        &self.inner.labels,
+                        self.inner.top_k,
+                        self.inner.min_confidence,
+                    )
+                } else {
+                    top_k_predictions(
+                        logits,
+                        &self.inner.labels,
+                        self.inner.top_k,
+                        self.inner.min_confidence,
+                    )
+                };
 
                 Ok(PredictionResult {
                     model_type,
@@ -942,7 +952,7 @@ impl Classifier {
         let model_type = self.inner.config.model_type;
 
         let (embeddings, logits) = match model_type {
-            ModelType::BirdNetV24 => {
+            ModelType::BirdNetV24 | ModelType::BsgFinland => {
                 // Single output: predictions
                 let logits = extract_tensor_data(outputs, 0)?;
                 (None, logits)
@@ -961,12 +971,21 @@ impl Classifier {
             }
         };
 
-        let predictions = top_k_predictions(
-            &logits,
-            &self.inner.labels,
-            self.inner.top_k,
-            self.inner.min_confidence,
-        );
+        let predictions = if model_type.output_is_sigmoid() {
+            top_k_predictions_presigmoid(
+                &logits,
+                &self.inner.labels,
+                self.inner.top_k,
+                self.inner.min_confidence,
+            )
+        } else {
+            top_k_predictions(
+                &logits,
+                &self.inner.labels,
+                self.inner.top_k,
+                self.inner.min_confidence,
+            )
+        };
 
         Ok(PredictionResult {
             model_type,
@@ -986,8 +1005,9 @@ impl Classifier {
         let num_species = self.inner.config.num_species;
 
         match model_type {
-            ModelType::BirdNetV24 => {
+            ModelType::BirdNetV24 | ModelType::BsgFinland => {
                 let logits_flat = extract_tensor_data(outputs, 0)?;
+                let is_presigmoid = model_type.output_is_sigmoid();
 
                 (0..batch_size)
                     .map(|i| {
@@ -995,12 +1015,21 @@ impl Classifier {
                         let end = start + num_species;
                         let logits = &logits_flat[start..end];
 
-                        let predictions = top_k_predictions(
-                            logits,
-                            &self.inner.labels,
-                            self.inner.top_k,
-                            self.inner.min_confidence,
-                        );
+                        let predictions = if is_presigmoid {
+                            top_k_predictions_presigmoid(
+                                logits,
+                                &self.inner.labels,
+                                self.inner.top_k,
+                                self.inner.min_confidence,
+                            )
+                        } else {
+                            top_k_predictions(
+                                logits,
+                                &self.inner.labels,
+                                self.inner.top_k,
+                                self.inner.min_confidence,
+                            )
+                        };
 
                         Ok(PredictionResult {
                             model_type,

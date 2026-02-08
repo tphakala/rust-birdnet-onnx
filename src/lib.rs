@@ -1,12 +1,14 @@
 //! # birdnet-onnx
 //!
-//! A Rust library for running inference on `BirdNET` and `Perch` ONNX models.
+//! A Rust library for running inference on `BirdNET`, `Perch`, and
+//! [`BSG Finland`](https://github.com/luomus/BSG) ONNX models.
 //!
 //! ## Supported Models
 //!
 //! - **`BirdNET` v2.4**: 48kHz, 3s segments (144,000 samples)
 //! - **`BirdNET` v3.0**: 32kHz, 5s segments (160,000 samples)
 //! - **`Perch` v2**: 32kHz, 5s segments (160,000 samples)
+//! - **BSG Finland**: Fused `BirdNET` v2.4 + Finnish classification head (265 species)
 //!
 //! ## Basic Example
 //!
@@ -74,6 +76,7 @@
 #![allow(clippy::module_name_repetitions)]
 
 mod batch_context;
+mod bsg;
 mod classifier;
 pub mod cuda_config;
 mod detection;
@@ -92,6 +95,7 @@ mod types;
 pub mod xnnpack_config;
 
 pub use batch_context::BatchInferenceContext;
+pub use bsg::{BsgPostProcessor, BsgPostProcessorBuilder};
 pub use classifier::{Classifier, ClassifierBuilder};
 pub use cuda_config::{ArenaExtendStrategy, CUDAConfig};
 pub use error::{Error, Result};
