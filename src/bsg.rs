@@ -1,6 +1,6 @@
 //! BSG Finland post-processor for calibration and species distribution model (SDM) adjustment.
 //!
-//! The BSG (Bird Survey Group) Finland pipeline applies two post-processing steps
+//! The BSG (Bird Sounds Global) Finland pipeline applies two post-processing steps
 //! to raw model predictions:
 //!
 //! 1. **Per-species logistic calibration** — corrects confidence values using

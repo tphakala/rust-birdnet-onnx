@@ -333,7 +333,7 @@ let filtered_batch = range_filter.filter_batch_predictions(
 
 ## BSG Finland Model
 
-The [BSG](https://github.com/luomus/BSG) (Bird Survey Group) Finland model uses a BirdNET v2.4 backbone with a custom classification head for 265 Finnish bird species, developed by the Finnish Museum of Natural History (Luomus). The [fused ONNX model](https://huggingface.co/tphakala/BSG) combines the BirdNET backbone and BSG classification head into a single end-to-end model with a sigmoid output layer.
+The [BSG](https://github.com/luomus/BSG) (Bird Sounds Global) Finland model uses a BirdNET v2.4 backbone with a custom classification head for 265 Finnish bird species, developed by the Finnish Museum of Natural History (Luomus). The [fused ONNX model](https://huggingface.co/tphakala/BSG) combines the BirdNET backbone and BSG classification head into a single end-to-end model with a sigmoid output layer.
 
 Since the fused model shares the same input shape as BirdNET v2.4 (144,000 samples), auto-detection cannot distinguish them. Use `ModelType::BsgFinland` explicitly:
 
