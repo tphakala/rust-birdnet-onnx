@@ -475,8 +475,13 @@ fn run_with_args(args: Args) -> Result<()> {
         None
     };
 
-    // Determine if SDM adjustment should be applied
-    let apply_sdm = args.lat.is_some() && args.lon.is_some() && args.day_of_year.is_some();
+    // Extract SDM coordinates if all three are provided
+    let sdm_params: Option<(f32, f32, u32)> =
+        if let (Some(lat), Some(lon), Some(day)) = (args.lat, args.lon, args.day_of_year) {
+            Some((lat, lon, day))
+        } else {
+            None
+        };
 
     // Read WAV file
     if args.verbose {
@@ -673,13 +678,8 @@ fn run_with_args(args: Args) -> Result<()> {
         for ((time_offset, _), result) in batch_chunk.iter().zip(results) {
             // Apply BSG post-processing if configured
             let processed = if let Some(ref bsg) = bsg_processor {
-                if apply_sdm {
-                    bsg.process(
-                        &result,
-                        args.lat.unwrap_or(0.0),
-                        args.lon.unwrap_or(0.0),
-                        args.day_of_year.unwrap_or(1),
-                    )?
+                if let Some((lat, lon, day_of_year)) = sdm_params {
+                    bsg.process(&result, lat, lon, day_of_year)?
                 } else {
                     bsg.calibrate(&result)?
                 }
