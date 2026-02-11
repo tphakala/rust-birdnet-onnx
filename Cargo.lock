@@ -90,7 +90,7 @@ checksum = "7d809780667f4410e7c41b07f52439b94d2bdf8528eeedc287fa38d3b7f95d82"
 
 [[package]]
 name = "birdnet-onnx"
-version = "2.0.0-rc.7"
+version = "2.0.0-rc.8"
 dependencies = [
  "chrono",
  "clap",
