@@ -3,7 +3,7 @@
 pub enum ModelType {
     /// `BirdNET` v2.4 - 48kHz, 3s segments, no embeddings.
     BirdNetV24,
-    /// `BirdNET` v3.0 - 32kHz, 5s segments, 1024-dim embeddings.
+    /// `BirdNET` v3.0 - 32kHz, 5s segments, 1280-dim embeddings.
     BirdNetV30,
     /// Google `Perch` v2 - 32kHz, 5s segments, variable embeddings.
     PerchV2,

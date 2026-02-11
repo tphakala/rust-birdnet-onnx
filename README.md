@@ -26,7 +26,7 @@ A Rust library for running inference on BirdNET, Perch, and [BSG Finland](https:
 | Model | Sample Rate | Segment | Embeddings | Notes |
 | ----- | ----------- | ------- | ---------- | ----- |
 | BirdNET v2.4 | 48 kHz | 3.0s | No | |
-| BirdNET v3.0 | 32 kHz | 5.0s | 1024-dim | |
+| BirdNET v3.0 | 32 kHz | 5.0s | 1280-dim | |
 | Perch v2 | 32 kHz | 5.0s | Variable | |
 | [BSG Finland](https://github.com/luomus/BSG) | 48 kHz | 3.0s | No | 265 Finnish species, [fused model](https://huggingface.co/tphakala/BSG) |
 
