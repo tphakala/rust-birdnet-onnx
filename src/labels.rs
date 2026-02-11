@@ -95,12 +95,13 @@ fn find_label_column(header: &csv::StringRecord) -> usize {
         "label",           // Generic label
     ];
 
-    for (index, field) in header.iter().enumerate() {
-        let field_lower = field.trim().to_lowercase();
-        for priority in &priority_headers {
-            if field_lower == *priority {
-                return index;
-            }
+    // Check each priority in order to ensure highest priority is selected
+    for priority in &priority_headers {
+        if let Some(index) = header
+            .iter()
+            .position(|field| field.trim().to_lowercase() == *priority)
+        {
+            return index;
         }
     }
 
@@ -238,7 +239,8 @@ mod tests {
     fn test_parse_csv_labels_with_header() {
         let content = "label,scientific_name\nAmerican Robin,Turdus migratorius\nNorthern Cardinal,Cardinalis cardinalis";
         let labels = parse_csv_labels(content).unwrap();
-        assert_eq!(labels, vec!["American Robin", "Northern Cardinal"]);
+        // scientific_name has higher priority than label, so should be selected
+        assert_eq!(labels, vec!["Turdus migratorius", "Cardinalis cardinalis"]);
     }
 
     #[test]
@@ -510,5 +512,18 @@ Species normal"#;
         let content = "species,scientific\nAmerican Robin,Turdus migratorius\nCardinal,Cardinalis";
         let labels = parse_csv_labels(content).unwrap();
         assert_eq!(labels, vec!["American Robin", "Cardinal"]);
+    }
+
+    #[test]
+    fn test_parse_csv_labels_priority_ordering() {
+        // Verify that sci_name takes priority even when com_name appears first
+        let content = "com_name;sci_name;other\n\
+                       Common Name 1;Scientific Name 1;Extra\n\
+                       Common Name 2;Scientific Name 2;Extra";
+        let labels = parse_csv_labels(content).unwrap();
+        // Should select sci_name (higher priority) not com_name
+        assert_eq!(labels.len(), 2);
+        assert_eq!(labels[0], "Scientific Name 1");
+        assert_eq!(labels[1], "Scientific Name 2");
     }
 }
