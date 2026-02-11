@@ -47,36 +47,10 @@ fn parse_text_labels(content: &str) -> Vec<String> {
         .collect()
 }
 
-/// Parse CSV format: first column is label, skip header if detected.
+/// Parse CSV format: auto-detect delimiter, intelligently select label column.
 fn parse_csv_labels(content: &str) -> Result<Vec<String>> {
-    let mut reader = csv::ReaderBuilder::new()
-        .has_headers(false)
-        .flexible(true)
-        .from_reader(content.as_bytes());
-
-    let mut labels = Vec::new();
-    let mut first_row = true;
-
-    for result in reader.records() {
-        let record = result.map_err(|e| Error::LabelParse(e.to_string()))?;
-
-        if let Some(first_col) = record.get(0) {
-            let label = first_col.trim().to_string();
-
-            // Skip header row if it looks like a header
-            if first_row && looks_like_header(&label) {
-                first_row = false;
-                continue;
-            }
-            first_row = false;
-
-            if !label.is_empty() {
-                labels.push(label);
-            }
-        }
-    }
-
-    Ok(labels)
+    let delimiter = detect_csv_delimiter(content);
+    parse_csv_with_delimiter(content, delimiter)
 }
 
 /// Check if a value looks like a CSV header.
@@ -88,8 +62,115 @@ fn looks_like_header(value: &str) -> bool {
         || lower == "class"
         || lower == "common_name"
         || lower == "scientific_name"
+        || lower == "sci_name" // `BirdNET` v3
+        || lower == "com_name" // `BirdNET` v3
+        || lower == "idx" // `BirdNET` v3 index column
+        || lower == "id"
         || lower.starts_with("inat") // `Perch` v2 dataset identifier (e.g., "inat2024_fsd50k")
         || lower.ends_with("_fsd50k") // `Perch` v2 dataset identifier
+}
+
+/// Detect the delimiter used in CSV content (comma or semicolon).
+fn detect_csv_delimiter(content: &str) -> u8 {
+    let first_line = content.lines().next().unwrap_or("");
+    let comma_count = first_line.matches(',').count();
+    let semicolon_count = first_line.matches(';').count();
+
+    if semicolon_count > comma_count {
+        b';'
+    } else {
+        b','
+    }
+}
+
+/// Find the best column index for labels based on header row.
+fn find_label_column(header: &csv::StringRecord) -> usize {
+    let priority_headers = [
+        "sci_name",        // `BirdNET` v3 scientific name
+        "com_name",        // `BirdNET` v3 common name
+        "scientific_name", // Common variant
+        "common_name",     // Common variant
+        "species",         // Generic species
+        "name",            // Generic name
+        "label",           // Generic label
+    ];
+
+    // Check each priority in order to ensure highest priority is selected
+    for priority in &priority_headers {
+        if let Some(index) = header
+            .iter()
+            .position(|field| field.trim().to_lowercase() == *priority)
+        {
+            return index;
+        }
+    }
+
+    0 // Default to first column if no recognized header
+}
+
+/// Check if a record's first column appears to be a numeric index.
+fn is_numeric_index(record: &csv::StringRecord) -> bool {
+    record.get(0).is_some_and(|first_col| {
+        let trimmed = first_col.trim();
+        !trimmed.is_empty() && trimmed.chars().all(|c| c.is_ascii_digit())
+    })
+}
+
+/// Find the first column that doesn't appear to be numeric.
+fn find_first_non_numeric_column(record: &csv::StringRecord) -> usize {
+    for (index, field) in record.iter().enumerate() {
+        let trimmed = field.trim();
+        if !trimmed.is_empty() && !trimmed.chars().all(|c| c.is_ascii_digit()) {
+            return index;
+        }
+    }
+    0 // Fallback to first column
+}
+
+/// Parse CSV content with specified delimiter and intelligent column selection.
+fn parse_csv_with_delimiter(content: &str, delimiter: u8) -> Result<Vec<String>> {
+    let mut reader = csv::ReaderBuilder::new()
+        .delimiter(delimiter)
+        .has_headers(false)
+        .flexible(true)
+        .from_reader(content.as_bytes());
+
+    let mut labels = Vec::new();
+    let mut first_row = true;
+    let mut label_column_index = 0;
+
+    for result in reader.records() {
+        let record = result.map_err(|e| Error::LabelParse(e.to_string()))?;
+
+        if first_row {
+            // Check if first row is a header
+            if let Some(first_col) = record.get(0) {
+                let first_col_trimmed = first_col.trim();
+                if looks_like_header(first_col_trimmed) {
+                    label_column_index = find_label_column(&record);
+                    first_row = false;
+                    continue; // Skip header row
+                }
+            }
+
+            // Not a header - check if first column is numeric index
+            if is_numeric_index(&record) {
+                label_column_index = find_first_non_numeric_column(&record);
+            }
+
+            first_row = false;
+        }
+
+        // Extract label from selected column
+        if let Some(label_text) = record.get(label_column_index) {
+            let label = label_text.trim().to_string();
+            if !label.is_empty() {
+                labels.push(label);
+            }
+        }
+    }
+
+    Ok(labels)
 }
 
 /// Parse JSON format: supports multiple structures.
@@ -158,7 +239,8 @@ mod tests {
     fn test_parse_csv_labels_with_header() {
         let content = "label,scientific_name\nAmerican Robin,Turdus migratorius\nNorthern Cardinal,Cardinalis cardinalis";
         let labels = parse_csv_labels(content).unwrap();
-        assert_eq!(labels, vec!["American Robin", "Northern Cardinal"]);
+        // scientific_name has higher priority than label, so should be selected
+        assert_eq!(labels, vec!["Turdus migratorius", "Cardinalis cardinalis"]);
     }
 
     #[test]
@@ -355,5 +437,93 @@ Species normal"#;
                 "Species normal"
             ]
         );
+    }
+
+    // BirdNET v3.0 format tests
+
+    #[test]
+    fn test_parse_csv_labels_birdnet_v3_format() {
+        let content = "idx;id;sci_name;com_name;class;order\n\
+                       0;3;Abeillia abeillei;Emerald-chinned Hummingbird;Aves;Apodiformes\n\
+                       1;5;Abroscopus albogularis;Rufous-faced Warbler;Aves;Passeriformes\n\
+                       2;6;Abroscopus schisticeps;Black-faced Warbler;Aves;Passeriformes";
+        let labels = parse_csv_labels(content).unwrap();
+        assert_eq!(labels.len(), 3);
+        assert_eq!(labels[0], "Abeillia abeillei");
+        assert_eq!(labels[1], "Abroscopus albogularis");
+        assert_eq!(labels[2], "Abroscopus schisticeps");
+    }
+
+    #[test]
+    fn test_parse_csv_labels_semicolon_com_name_priority() {
+        let content = "idx;id;other;com_name;class\n\
+                       0;3;Something;Emerald-chinned Hummingbird;Aves\n\
+                       1;5;Other;Rufous-faced Warbler;Aves";
+        let labels = parse_csv_labels(content).unwrap();
+        assert_eq!(labels.len(), 2);
+        assert_eq!(labels[0], "Emerald-chinned Hummingbird");
+        assert_eq!(labels[1], "Rufous-faced Warbler");
+    }
+
+    #[test]
+    fn test_parse_csv_labels_numeric_first_column_no_header() {
+        let content = "0;Abeillia abeillei;Extra\n\
+                       1;Abroscopus albogularis;Extra\n\
+                       2;Abroscopus schisticeps;Extra";
+        let labels = parse_csv_labels(content).unwrap();
+        assert_eq!(labels.len(), 3);
+        assert_eq!(labels[0], "Abeillia abeillei");
+    }
+
+    #[test]
+    fn test_detect_csv_delimiter_comma() {
+        let content = "species,common_name\nSpecies1,Common1";
+        let delimiter = detect_csv_delimiter(content);
+        assert_eq!(delimiter, b',');
+    }
+
+    #[test]
+    fn test_detect_csv_delimiter_semicolon() {
+        let content = "idx;sci_name;com_name\n0;Species1;Common1";
+        let delimiter = detect_csv_delimiter(content);
+        assert_eq!(delimiter, b';');
+    }
+
+    #[test]
+    fn test_parse_csv_labels_with_bom() {
+        let content = "\u{FEFF}idx;sci_name\n0;Abeillia abeillei\n1;Test species";
+        let labels = parse_csv_labels(content).unwrap();
+        assert_eq!(labels.len(), 2);
+        assert_eq!(labels[0], "Abeillia abeillei");
+    }
+
+    #[test]
+    fn test_parse_csv_labels_backward_compat_single_column() {
+        let content = "American Robin\nNorthern Cardinal\nBlue Jay";
+        let labels = parse_csv_labels(content).unwrap();
+        assert_eq!(
+            labels,
+            vec!["American Robin", "Northern Cardinal", "Blue Jay"]
+        );
+    }
+
+    #[test]
+    fn test_parse_csv_labels_backward_compat_comma_multicolumn() {
+        let content = "species,scientific\nAmerican Robin,Turdus migratorius\nCardinal,Cardinalis";
+        let labels = parse_csv_labels(content).unwrap();
+        assert_eq!(labels, vec!["American Robin", "Cardinal"]);
+    }
+
+    #[test]
+    fn test_parse_csv_labels_priority_ordering() {
+        // Verify that sci_name takes priority even when com_name appears first
+        let content = "com_name;sci_name;other\n\
+                       Common Name 1;Scientific Name 1;Extra\n\
+                       Common Name 2;Scientific Name 2;Extra";
+        let labels = parse_csv_labels(content).unwrap();
+        // Should select sci_name (higher priority) not com_name
+        assert_eq!(labels.len(), 2);
+        assert_eq!(labels[0], "Scientific Name 1");
+        assert_eq!(labels[1], "Scientific Name 2");
     }
 }
