@@ -17,14 +17,30 @@ pub fn detect_model_type(
     output_shapes: &[Vec<i64>],
     override_type: Option<ModelType>,
 ) -> Result<ModelConfig> {
-    let sample_count = extract_sample_count(input_shape)?;
+    let sample_count_opt = extract_sample_count(input_shape);
     let num_outputs = output_shapes.len();
 
     // If user provided override, validate and use it
     if let Some(model_type) = override_type {
+        let sample_count = sample_count_opt.unwrap_or_else(|| model_type.sample_count());
         return build_config_with_override(model_type, sample_count, output_shapes);
     }
 
+    // If sample count is known, use it for detection
+    if let Some(sample_count) = sample_count_opt {
+        return detect_from_sample_count(sample_count, num_outputs, output_shapes);
+    }
+
+    // Input has dynamic dimensions - infer from output shapes
+    detect_from_outputs(num_outputs, output_shapes)
+}
+
+/// Detect model type from known sample count and output patterns.
+fn detect_from_sample_count(
+    sample_count: usize,
+    num_outputs: usize,
+    output_shapes: &[Vec<i64>],
+) -> Result<ModelConfig> {
     // Auto-detection based on sample count and output count
     match (sample_count, num_outputs) {
         // `BirdNET` v2.4: 144,000 samples, 1 output (predictions)
@@ -74,6 +90,61 @@ pub fn detect_model_type(
             reason: format!(
                 "unsupported model: {sample_count} samples, {num_outputs} outputs \
                  (expected 144000/1, 160000/2, or 160000/4)"
+            ),
+        }),
+    }
+}
+
+/// Detect model type from output shapes when input dimensions are dynamic.
+fn detect_from_outputs(num_outputs: usize, output_shapes: &[Vec<i64>]) -> Result<ModelConfig> {
+    match num_outputs {
+        // `BirdNET` v2.4: 1 output
+        1 => {
+            let num_species = extract_last_dim(&output_shapes[0])?;
+            Ok(ModelConfig {
+                model_type: ModelType::BirdNetV24,
+                sample_rate: 48_000,
+                segment_duration: 3.0,
+                sample_count: 144_000,
+                num_species,
+                embedding_dim: None,
+            })
+        }
+
+        // `BirdNET` v3.0: 2 outputs (embeddings, predictions)
+        2 => {
+            let embedding_dim = extract_last_dim(&output_shapes[0])?;
+            let num_species = extract_last_dim(&output_shapes[1])?;
+
+            Ok(ModelConfig {
+                model_type: ModelType::BirdNetV30,
+                sample_rate: 32_000,
+                segment_duration: 5.0,
+                sample_count: 160_000,
+                num_species,
+                embedding_dim: Some(embedding_dim),
+            })
+        }
+
+        // `Perch` v2: 4 outputs
+        4 => {
+            let embedding_dim = extract_last_dim(&output_shapes[0])?;
+            let num_species = extract_last_dim(&output_shapes[3])?;
+
+            Ok(ModelConfig {
+                model_type: ModelType::PerchV2,
+                sample_rate: 32_000,
+                segment_duration: 5.0,
+                sample_count: 160_000,
+                num_species,
+                embedding_dim: Some(embedding_dim),
+            })
+        }
+
+        _ => Err(Error::ModelDetection {
+            reason: format!(
+                "unsupported model with dynamic input: {num_outputs} outputs \
+                 (expected 1, 2, or 4)"
             ),
         }),
     }
@@ -154,20 +225,20 @@ fn build_config_with_override(
 
 /// Extract sample count from input shape.
 /// Handles `[batch, samples]` or `[batch, 1, samples]`.
-fn extract_sample_count(shape: &[i64]) -> Result<usize> {
+/// Returns `None` if the dimension is dynamic (-1).
+fn extract_sample_count(shape: &[i64]) -> Option<usize> {
     let value = match shape.len() {
         2 => shape[1],
         3 => shape[2],
-        _ => {
-            return Err(Error::ModelDetection {
-                reason: format!("unexpected input shape: {shape:?}"),
-            });
-        }
+        _ => return None, // Unexpected shape
     };
 
-    usize::try_from(value).map_err(|_| Error::ModelDetection {
-        reason: format!("invalid sample count: {value}"),
-    })
+    // Handle dynamic dimensions (-1) or invalid values
+    if value <= 0 {
+        return None;
+    }
+
+    usize::try_from(value).ok()
 }
 
 /// Extract last dimension from output shape.
@@ -289,5 +360,48 @@ mod tests {
     #[test]
     fn test_extract_sample_count_3d() {
         assert_eq!(extract_sample_count(&[1, 1, 144_000]).unwrap(), 144_000);
+    }
+
+    #[test]
+    fn test_extract_sample_count_dynamic() {
+        // Dynamic dimensions should return None
+        assert_eq!(extract_sample_count(&[-1, -1]), None);
+        assert_eq!(extract_sample_count(&[1, -1]), None);
+        assert_eq!(extract_sample_count(&[-1, 160_000]), Some(160_000));
+    }
+
+    #[test]
+    fn test_detect_birdnet_v30_dynamic_input() {
+        // Input shape with dynamic dimensions
+        let input_shape = vec![-1, -1];
+        let output_shapes = vec![vec![-1, 1280], vec![-1, 11560]];
+
+        let config = detect_model_type(&input_shape, &output_shapes, None).unwrap();
+
+        assert_eq!(config.model_type, ModelType::BirdNetV30);
+        assert_eq!(config.sample_rate, 32_000);
+        assert_eq!(config.segment_duration, 5.0);
+        assert_eq!(config.sample_count, 160_000);
+        assert_eq!(config.num_species, 11560);
+        assert_eq!(config.embedding_dim, Some(1280));
+    }
+
+    #[test]
+    fn test_detect_perch_v2_dynamic_input() {
+        // Input shape with dynamic dimensions
+        let input_shape = vec![-1, -1];
+        let output_shapes = vec![
+            vec![-1, 1536],        // embedding
+            vec![-1, 16, 4, 1536], // spatial_embedding
+            vec![-1, 500, 128],    // spectrogram
+            vec![-1, 14795],       // predictions
+        ];
+
+        let config = detect_model_type(&input_shape, &output_shapes, None).unwrap();
+
+        assert_eq!(config.model_type, ModelType::PerchV2);
+        assert_eq!(config.sample_count, 160_000);
+        assert_eq!(config.num_species, 14795);
+        assert_eq!(config.embedding_dim, Some(1536));
     }
 }
