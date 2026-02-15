@@ -83,6 +83,8 @@ pub struct BatchInferenceContext {
     embedding_dim: Option<usize>,
     /// Model type for output processing
     model_type: ModelType,
+    /// Output tensor names from the model
+    output_names: Vec<String>,
 }
 
 impl BatchInferenceContext {
@@ -119,6 +121,13 @@ impl BatchInferenceContext {
             .create_binding()
             .map_err(|e| Error::Inference(format!("failed to create IoBinding: {e}")))?;
 
+        // Extract output names from session metadata
+        let output_names: Vec<String> = session
+            .outputs()
+            .iter()
+            .map(|output| output.name().to_string())
+            .collect();
+
         // Pre-allocate input buffer for max batch size
         let input_buffer = vec![0.0f32; max_batch_size * config.sample_count];
 
@@ -130,6 +139,7 @@ impl BatchInferenceContext {
             num_species: config.num_species,
             embedding_dim: config.embedding_dim,
             model_type: config.model_type,
+            output_names,
         })
     }
 
@@ -246,19 +256,29 @@ impl BatchInferenceContext {
         match self.model_type {
             ModelType::BirdNetV24 | ModelType::BsgFinland => {
                 // Single output: logits
+                let output_name = self
+                    .output_names
+                    .first()
+                    .ok_or_else(|| Error::Inference("model has no output tensors".to_string()))?;
                 self.io_binding
-                    .bind_output_to_device("output", &mem_info)
+                    .bind_output_to_device(output_name, &mem_info)
                     .map_err(|e| Error::Inference(format!("failed to bind output: {e}")))?;
             }
             ModelType::BirdNetV30 => {
                 // Two outputs: embeddings and logits
+                let output_0 = self.output_names.first().ok_or_else(|| {
+                    Error::Inference("model missing first output tensor".to_string())
+                })?;
+                let output_1 = self.output_names.get(1).ok_or_else(|| {
+                    Error::Inference("model missing second output tensor".to_string())
+                })?;
                 self.io_binding
-                    .bind_output_to_device("output_0", &mem_info)
+                    .bind_output_to_device(output_0, &mem_info)
                     .map_err(|e| {
                         Error::Inference(format!("failed to bind embeddings output: {e}"))
                     })?;
                 self.io_binding
-                    .bind_output_to_device("output_1", &mem_info)
+                    .bind_output_to_device(output_1, &mem_info)
                     .map_err(|e| Error::Inference(format!("failed to bind logits output: {e}")))?;
             }
             ModelType::PerchV2 => {
@@ -294,18 +314,28 @@ impl BatchInferenceContext {
     ) -> Result<(Option<Vec<f32>>, Vec<f32>)> {
         match self.model_type {
             ModelType::BirdNetV24 | ModelType::BsgFinland => {
+                let output_name = self
+                    .output_names
+                    .first()
+                    .ok_or_else(|| Error::Inference("model has no output tensors".to_string()))?;
                 let logits =
-                    Self::extract_tensor_data(outputs, "output", batch_size * self.num_species)?;
+                    Self::extract_tensor_data(outputs, output_name, batch_size * self.num_species)?;
                 Ok((None, logits))
             }
             ModelType::BirdNetV30 => {
                 let embedding_dim = self.embedding_dim.ok_or_else(|| {
                     Error::Inference("embedding_dim required for BirdNetV30".into())
                 })?;
+                let output_0 = self.output_names.first().ok_or_else(|| {
+                    Error::Inference("model missing first output tensor".to_string())
+                })?;
+                let output_1 = self.output_names.get(1).ok_or_else(|| {
+                    Error::Inference("model missing second output tensor".to_string())
+                })?;
                 let embeddings =
-                    Self::extract_tensor_data(outputs, "output_0", batch_size * embedding_dim)?;
+                    Self::extract_tensor_data(outputs, output_0, batch_size * embedding_dim)?;
                 let logits =
-                    Self::extract_tensor_data(outputs, "output_1", batch_size * self.num_species)?;
+                    Self::extract_tensor_data(outputs, output_1, batch_size * self.num_species)?;
                 Ok((Some(embeddings), logits))
             }
             ModelType::PerchV2 => Err(Error::Inference("PerchV2 not supported".into())),
