@@ -4,7 +4,9 @@ use crate::detection::detect_model_type;
 use crate::error::{Error, Result};
 use crate::inference_options::InferenceOptions;
 use crate::labels::load_labels_from_file;
-use crate::postprocess::{top_k_predictions, top_k_predictions_presigmoid};
+use crate::postprocess::{
+    top_k_predictions, top_k_predictions_presigmoid, top_k_predictions_softmax,
+};
 use crate::types::{ExecutionProviderInfo, ModelConfig, ModelType, Prediction, PredictionResult};
 use ndarray::Array2;
 use ort::session::{RunOptions, Session};
@@ -1014,12 +1016,7 @@ impl Classifier {
                         let logits_end = logits_start + num_species;
                         let logits = &logits_flat[logits_start..logits_end];
 
-                        let predictions = top_k_predictions(
-                            logits,
-                            &self.inner.labels,
-                            self.inner.top_k,
-                            self.inner.min_confidence,
-                        );
+                        let predictions = self.select_top_k(logits);
 
                         Ok(PredictionResult {
                             model_type,
@@ -1049,12 +1046,7 @@ impl Classifier {
                         let logits_end = logits_start + num_species;
                         let logits = &logits_flat[logits_start..logits_end];
 
-                        let predictions = top_k_predictions(
-                            logits,
-                            &self.inner.labels,
-                            self.inner.top_k,
-                            self.inner.min_confidence,
-                        );
+                        let predictions = self.select_top_k(logits);
 
                         Ok(PredictionResult {
                             model_type,
@@ -1072,6 +1064,13 @@ impl Classifier {
     fn select_top_k(&self, scores: &[f32]) -> Vec<Prediction> {
         if self.inner.config.model_type.output_is_sigmoid() {
             top_k_predictions_presigmoid(
+                scores,
+                &self.inner.labels,
+                self.inner.top_k,
+                self.inner.min_confidence,
+            )
+        } else if self.inner.config.model_type.output_needs_softmax() {
+            top_k_predictions_softmax(
                 scores,
                 &self.inner.labels,
                 self.inner.top_k,
