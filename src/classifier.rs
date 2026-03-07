@@ -374,9 +374,9 @@ impl ClassifierBuilder {
         // Build session with execution providers
         let mut session_builder = Session::builder().map_err(Error::ModelLoad)?;
 
-        for provider in self.execution_providers {
+        if !self.execution_providers.is_empty() {
             session_builder = session_builder
-                .with_execution_providers([provider])
+                .with_execution_providers(self.execution_providers)
                 .map_err(|e| Error::ModelLoad(e.into()))?;
         }
 
