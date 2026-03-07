@@ -441,6 +441,7 @@ fn run_with_args(args: Args) -> Result<()> {
         ExecutionProviderInfo::Acl => builder.execution_provider(
             birdnet_onnx::ort_execution_providers::ACLExecutionProvider::default(),
         ),
+        #[allow(deprecated)]
         ExecutionProviderInfo::ArmNn => builder.execution_provider(
             birdnet_onnx::ort_execution_providers::ArmNNExecutionProvider::default(),
         ),

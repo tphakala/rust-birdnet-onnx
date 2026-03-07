@@ -37,7 +37,7 @@
 
 use crate::error::{Error, Result};
 use crate::types::{ModelConfig, ModelType};
-use ort::io_binding::IoBinding;
+use ort::session::IoBinding;
 use ort::session::Session;
 use ort::value::TensorRef;
 use std::sync::MutexGuard;

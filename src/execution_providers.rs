@@ -5,7 +5,7 @@
 
 use crate::types::ExecutionProviderInfo;
 use ort::ep::{
-    ACLExecutionProvider, ArmNNExecutionProvider, CUDAExecutionProvider, CoreMLExecutionProvider,
+    ACLExecutionProvider, CUDAExecutionProvider, CoreMLExecutionProvider,
     DirectMLExecutionProvider, ExecutionProvider, OneDNNExecutionProvider,
     OpenVINOExecutionProvider, QNNExecutionProvider, ROCmExecutionProvider,
     TensorRTExecutionProvider, XNNPACK,
@@ -52,7 +52,17 @@ pub fn available_execution_providers() -> Vec<ExecutionProviderInfo> {
     check_provider!(OneDNNExecutionProvider, ExecutionProviderInfo::OneDnn);
     check_provider!(QNNExecutionProvider, ExecutionProviderInfo::Qnn);
     check_provider!(ACLExecutionProvider, ExecutionProviderInfo::Acl);
-    check_provider!(ArmNNExecutionProvider, ExecutionProviderInfo::ArmNn);
+    {
+        #[allow(deprecated)]
+        use ort::ep::ArmNNExecutionProvider;
+        #[allow(deprecated)]
+        if ArmNNExecutionProvider::default()
+            .is_available()
+            .unwrap_or(false)
+        {
+            providers.push(ExecutionProviderInfo::ArmNn);
+        }
+    }
     check_provider!(XNNPACK, ExecutionProviderInfo::Xnnpack);
 
     providers
