@@ -241,7 +241,7 @@ impl RangeFilterBuilder {
         if !self.execution_providers.is_empty() {
             session_builder = session_builder
                 .with_execution_providers(self.execution_providers)
-                .map_err(Error::ModelLoad)?;
+                .map_err(|e| Error::ModelLoad(e.into()))?;
         }
 
         let session = session_builder

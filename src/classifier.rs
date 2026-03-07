@@ -316,12 +316,18 @@ impl ClassifierBuilder {
         Acl,
         "Request ACL execution provider (Arm Compute Library)"
     );
-    with_provider_method!(
-        with_armnn,
-        ArmNNExecutionProvider,
-        ArmNn,
-        "Request `ArmNN` execution provider (Arm Neural Network)"
-    );
+    /// Request `ArmNN` execution provider (Arm Neural Network)
+    #[must_use]
+    #[allow(deprecated)]
+    pub fn with_armnn(mut self) -> Self {
+        use ort::ep::ArmNNExecutionProvider;
+        self.execution_providers
+            .push(ArmNNExecutionProvider::default().into());
+        if self.requested_provider == ExecutionProviderInfo::Cpu {
+            self.requested_provider = ExecutionProviderInfo::ArmNn;
+        }
+        self
+    }
     with_provider_method!(
         with_xnnpack,
         XNNPACK,
@@ -371,7 +377,7 @@ impl ClassifierBuilder {
         for provider in self.execution_providers {
             session_builder = session_builder
                 .with_execution_providers([provider])
-                .map_err(Error::ModelLoad)?;
+                .map_err(|e| Error::ModelLoad(e.into()))?;
         }
 
         let session = session_builder
