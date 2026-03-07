@@ -1,4 +1,4 @@
-//! Prediction post-processing: top-K selection with sigmoid
+//! Prediction post-processing: top-K selection with activation transforms
 
 use crate::types::Prediction;
 use std::cmp::Ordering;
@@ -62,7 +62,7 @@ pub fn top_k_predictions_softmax(
     }
 
     // Compute softmax denominator: sum(exp(x_i - max)) for numerical stability
-    let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let max = logits.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
     let sum_exp: f32 = logits.iter().map(|&x| (x - max).exp()).sum();
 
     // Use the generic top-K with softmax transform
@@ -380,5 +380,102 @@ mod tests {
         // Should not panic with NaN comparisons due to total_cmp
         let _ = entry1.cmp(&entry2);
         let _ = entry1.eq(&entry2);
+    }
+
+    // Softmax tests
+
+    #[test]
+    fn test_softmax_basic() {
+        let logits = vec![1.0, 2.0, 3.0];
+        let labels: Vec<String> = (0..3).map(|i| format!("species_{i}")).collect();
+
+        let predictions = top_k_predictions_softmax(&logits, &labels, 3, None);
+
+        assert_eq!(predictions.len(), 3);
+        // Softmax probabilities should sum to ~1.0
+        let sum: f32 = predictions.iter().map(|p| p.confidence).sum();
+        assert!((sum - 1.0).abs() < 0.001);
+        // Highest logit should have highest probability
+        assert_eq!(predictions[0].species, "species_2");
+    }
+
+    #[test]
+    fn test_softmax_uniform_logits() {
+        let logits = vec![1.0, 1.0, 1.0, 1.0];
+        let labels: Vec<String> = (0..4).map(|i| format!("species_{i}")).collect();
+
+        let predictions = top_k_predictions_softmax(&logits, &labels, 4, None);
+
+        assert_eq!(predictions.len(), 4);
+        // All should be equal at 0.25
+        for p in &predictions {
+            assert!((p.confidence - 0.25).abs() < 0.001);
+        }
+    }
+
+    #[test]
+    fn test_softmax_numerical_stability() {
+        // Large values that would overflow without max subtraction
+        let logits = vec![1000.0, 1001.0, 1002.0];
+        let labels: Vec<String> = (0..3).map(|i| format!("species_{i}")).collect();
+
+        let predictions = top_k_predictions_softmax(&logits, &labels, 3, None);
+
+        for p in &predictions {
+            assert!(p.confidence.is_finite());
+        }
+        let sum: f32 = predictions.iter().map(|p| p.confidence).sum();
+        assert!((sum - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_softmax_ordering_matches_raw_logits() {
+        let logits = vec![0.1, 5.0, 3.0, 1.0, 4.0];
+        let labels: Vec<String> = (0..5).map(|i| format!("species_{i}")).collect();
+
+        let predictions = top_k_predictions_softmax(&logits, &labels, 3, None);
+
+        // Top-3 by logit: index 1 (5.0), index 4 (4.0), index 2 (3.0)
+        assert_eq!(predictions[0].species, "species_1");
+        assert_eq!(predictions[1].species, "species_4");
+        assert_eq!(predictions[2].species, "species_2");
+    }
+
+    #[test]
+    fn test_softmax_min_confidence_filtering() {
+        // With 3 logits, softmax gives roughly: [0.09, 0.24, 0.67]
+        let logits = vec![1.0, 2.0, 3.0];
+        let labels: Vec<String> = (0..3).map(|i| format!("species_{i}")).collect();
+
+        let predictions = top_k_predictions_softmax(&logits, &labels, 3, Some(0.2));
+
+        // Only species with softmax >= 0.2 should remain
+        for p in &predictions {
+            assert!(p.confidence >= 0.2);
+        }
+        // species_0 (logit=1.0, softmax~0.09) should be filtered out
+        assert!(predictions.iter().all(|p| p.species != "species_0"));
+    }
+
+    #[test]
+    fn test_softmax_empty_and_zero_k() {
+        let predictions = top_k_predictions_softmax(&[], &[], 10, None);
+        assert!(predictions.is_empty());
+
+        let logits = vec![1.0, 2.0];
+        let labels = vec!["a".to_string(), "b".to_string()];
+        let predictions = top_k_predictions_softmax(&logits, &labels, 0, None);
+        assert!(predictions.is_empty());
+    }
+
+    #[test]
+    fn test_softmax_single_element() {
+        let logits = vec![5.0];
+        let labels = vec!["only".to_string()];
+
+        let predictions = top_k_predictions_softmax(&logits, &labels, 1, None);
+
+        assert_eq!(predictions.len(), 1);
+        assert!((predictions[0].confidence - 1.0).abs() < 0.001);
     }
 }
