@@ -46,6 +46,31 @@ pub fn top_k_predictions(
     top_k_with_transform(logits, labels, top_k, min_confidence, sigmoid)
 }
 
+/// Select top-K predictions with softmax activation.
+///
+/// Computes the softmax denominator over all logits, then selects top-K by raw
+/// logit value and converts each to a softmax probability. Used for models like
+/// Perch v2 that were trained with softmax cross-entropy loss.
+pub fn top_k_predictions_softmax(
+    logits: &[f32],
+    labels: &[String],
+    top_k: usize,
+    min_confidence: Option<f32>,
+) -> Vec<Prediction> {
+    if logits.is_empty() || top_k == 0 {
+        return Vec::new();
+    }
+
+    // Compute softmax denominator: sum(exp(x_i - max)) for numerical stability
+    let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let sum_exp: f32 = logits.iter().map(|&x| (x - max).exp()).sum();
+
+    // Use the generic top-K with softmax transform
+    top_k_with_transform(logits, labels, top_k, min_confidence, |x| {
+        (x - max).exp() / sum_exp
+    })
+}
+
 /// Select top-K predictions from pre-sigmoided scores (already in `[0, 1]`).
 ///
 /// Used for models like BSG Finland where sigmoid is baked into the ONNX graph.

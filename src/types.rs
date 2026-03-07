@@ -55,6 +55,13 @@ impl ModelType {
         matches!(self, Self::BsgFinland)
     }
 
+    /// Whether this model was trained with softmax cross-entropy and needs
+    /// softmax activation instead of sigmoid at inference.
+    #[must_use]
+    pub const fn output_needs_softmax(&self) -> bool {
+        matches!(self, Self::PerchV2)
+    }
+
     /// Expected label file format for this model type.
     #[must_use]
     pub const fn expected_label_format(&self) -> LabelFormat {
