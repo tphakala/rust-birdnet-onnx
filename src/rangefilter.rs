@@ -856,6 +856,63 @@ mod tests {
     }
 
     #[test]
+    fn test_filter_predictions_species_not_in_meta_model_with_rerank() {
+        // Verify species absent from meta model are filtered out even with reranking enabled
+        let predictions = vec![
+            Prediction {
+                species: "Species A".to_string(),
+                confidence: 0.9,
+                index: 0,
+            },
+            Prediction {
+                species: "Species B".to_string(), // Not in meta model
+                confidence: 0.8,
+                index: 1,
+            },
+            Prediction {
+                species: "Species C".to_string(),
+                confidence: 0.7,
+                index: 2,
+            },
+            Prediction {
+                species: "Species D".to_string(), // Not in meta model
+                confidence: 0.95,
+                index: 3,
+            },
+        ];
+
+        let location_scores = vec![
+            LocationScore {
+                species: "Species A".to_string(),
+                score: 0.5,
+                index: 0,
+            },
+            LocationScore {
+                species: "Species C".to_string(),
+                score: 0.8,
+                index: 2,
+            },
+        ];
+
+        let threshold = 0.03;
+        let rerank = true;
+
+        let filtered = filter_predictions_impl(&predictions, &location_scores, threshold, rerank);
+
+        // Species B and D (NOT in meta model): FILTER OUT even with rerank
+        assert_eq!(filtered.len(), 2);
+
+        // After reranking (confidence * location_score):
+        // Species A: 0.9 * 0.5 = 0.45
+        // Species C: 0.7 * 0.8 = 0.56 (highest)
+        // Should be sorted: C, A
+        assert_eq!(filtered[0].species, "Species C");
+        assert!((filtered[0].confidence - 0.56).abs() < 0.001);
+        assert_eq!(filtered[1].species, "Species A");
+        assert!((filtered[1].confidence - 0.45).abs() < 0.001);
+    }
+
+    #[test]
     fn test_builder_from_classifier_labels() {
         // This test verifies the builder can accept a label reference
         // We can't test with a real Classifier without a model file,
