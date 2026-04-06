@@ -366,12 +366,8 @@ fn filter_predictions_impl(
                     None
                 }
                 None => {
-                    // Species NOT in meta model: keep unchanged
-                    Some(Prediction {
-                        species: pred.species.clone(),
-                        confidence: pred.confidence,
-                        index: pred.index,
-                    })
+                    // Species NOT in meta model: filter out (not expected at this location)
+                    None
                 }
             }
         })
@@ -852,15 +848,11 @@ mod tests {
         let filtered = filter_predictions_impl(&predictions, &location_scores, threshold, rerank);
 
         // Species A (in meta, score >= threshold): KEEP
-        // Species B (NOT in meta model): KEEP unchanged
-        // Species D (NOT in meta model): KEEP unchanged
-        assert_eq!(filtered.len(), 3);
+        // Species B (NOT in meta model): FILTER OUT (not expected at location)
+        // Species D (NOT in meta model): FILTER OUT (not expected at location)
+        assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].species, "Species A");
         assert_eq!(filtered[0].confidence, 0.8);
-        assert_eq!(filtered[1].species, "Species B");
-        assert_eq!(filtered[1].confidence, 0.7);
-        assert_eq!(filtered[2].species, "Species D");
-        assert_eq!(filtered[2].confidence, 0.9);
     }
 
     #[test]
