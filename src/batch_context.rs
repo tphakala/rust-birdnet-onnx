@@ -254,8 +254,23 @@ impl BatchInferenceContext {
         .map_err(|e| Error::Inference(format!("failed to create memory info: {e}")))?;
 
         match self.model_type {
+            ModelType::BirdNetV24 if self.embedding_dim.is_some() => {
+                let output_0 = self.output_names.first().ok_or_else(|| {
+                    Error::Inference("model missing first output tensor".to_string())
+                })?;
+                let output_1 = self.output_names.get(1).ok_or_else(|| {
+                    Error::Inference("model missing second output tensor".to_string())
+                })?;
+                self.io_binding
+                    .bind_output_to_device(output_0, &mem_info)
+                    .map_err(|e| Error::Inference(format!("failed to bind logits output: {e}")))?;
+                self.io_binding
+                    .bind_output_to_device(output_1, &mem_info)
+                    .map_err(|e| {
+                        Error::Inference(format!("failed to bind embeddings output: {e}"))
+                    })?;
+            }
             ModelType::BirdNetV24 | ModelType::BsgFinland => {
-                // Single output: logits
                 let output_name = self
                     .output_names
                     .first()
