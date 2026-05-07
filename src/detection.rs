@@ -56,6 +56,21 @@ fn detect_from_sample_count(
             })
         }
 
+        // BirdNET v2.4 with embeddings: 144,000 samples, 2 outputs
+        // (predictions at 0, embeddings at 1)
+        (144_000, 2) => {
+            let num_species = extract_last_dim(&output_shapes[0])?;
+            let embedding_dim = extract_last_dim(&output_shapes[1])?;
+            Ok(ModelConfig {
+                model_type: ModelType::BirdNetV24,
+                sample_rate: 48_000,
+                segment_duration: 3.0,
+                sample_count: 144_000,
+                num_species,
+                embedding_dim: Some(embedding_dim),
+            })
+        }
+
         // `BirdNET` v3.0: 160,000 samples, 2 outputs (embeddings, predictions)
         (160_000, 2) => {
             let embedding_dim = extract_last_dim(&output_shapes[0])?;
@@ -89,7 +104,7 @@ fn detect_from_sample_count(
         _ => Err(Error::ModelDetection {
             reason: format!(
                 "unsupported model: {sample_count} samples, {num_outputs} outputs \
-                 (expected 144000/1, 160000/2, or 160000/4)"
+                 (expected 144000/1, 144000/2, 160000/2, or 160000/4)"
             ),
         }),
     }
@@ -111,19 +126,36 @@ fn detect_from_outputs(num_outputs: usize, output_shapes: &[Vec<i64>]) -> Result
             })
         }
 
-        // `BirdNET` v3.0: 2 outputs (embeddings, predictions)
+        // 2 outputs: either v2.4-with-embeddings or v3.0, distinguished by output order.
+        // v2.4 with embeddings: first output is large (predictions),
+        // second is small (1024 embeddings).
+        // v3.0: first output is small (1280 embeddings),
+        // second is large (predictions).
         2 => {
-            let embedding_dim = extract_last_dim(&output_shapes[0])?;
-            let num_species = extract_last_dim(&output_shapes[1])?;
+            let first_dim = extract_last_dim(&output_shapes[0])?;
+            let second_dim = extract_last_dim(&output_shapes[1])?;
 
-            Ok(ModelConfig {
-                model_type: ModelType::BirdNetV30,
-                sample_rate: 32_000,
-                segment_duration: 5.0,
-                sample_count: 160_000,
-                num_species,
-                embedding_dim: Some(embedding_dim),
-            })
+            if first_dim > second_dim {
+                // v2.4 pattern: predictions at 0, embeddings at 1
+                Ok(ModelConfig {
+                    model_type: ModelType::BirdNetV24,
+                    sample_rate: 48_000,
+                    segment_duration: 3.0,
+                    sample_count: 144_000,
+                    num_species: first_dim,
+                    embedding_dim: Some(second_dim),
+                })
+            } else {
+                // v3.0 pattern: embeddings at 0, predictions at 1
+                Ok(ModelConfig {
+                    model_type: ModelType::BirdNetV30,
+                    sample_rate: 32_000,
+                    segment_duration: 5.0,
+                    sample_count: 160_000,
+                    num_species: second_dim,
+                    embedding_dim: Some(first_dim),
+                })
+            }
         }
 
         // `Perch` v2: 4 outputs
@@ -168,15 +200,20 @@ fn build_config_with_override(
 
     let (embedding_dim, num_species) = match model_type {
         ModelType::BirdNetV24 => {
-            if output_shapes.len() != 1 {
-                return Err(Error::ModelDetection {
-                    reason: format!(
-                        "`BirdNET` v2.4 expects 1 output, got {}",
-                        output_shapes.len()
-                    ),
-                });
+            match output_shapes.len() {
+                1 => (None, extract_last_dim(&output_shapes[0])?),
+                2 => (
+                    Some(extract_last_dim(&output_shapes[1])?),
+                    extract_last_dim(&output_shapes[0])?,
+                ),
+                n => {
+                    return Err(Error::ModelDetection {
+                        reason: format!(
+                            "BirdNET v2.4 expects 1 or 2 outputs, got {n}"
+                        ),
+                    });
+                }
             }
-            (None, extract_last_dim(&output_shapes[0])?)
         }
         ModelType::BirdNetV30 => {
             if output_shapes.len() != 2 {
@@ -403,5 +440,44 @@ mod tests {
         assert_eq!(config.sample_count, 160_000);
         assert_eq!(config.num_species, 14795);
         assert_eq!(config.embedding_dim, Some(1536));
+    }
+
+    #[test]
+    fn test_detect_birdnet_v24_with_embeddings() {
+        let input_shape = vec![1, 144_000];
+        // v2.4 with embeddings: predictions at 0, embeddings at 1
+        let output_shapes = vec![vec![1, 6522], vec![1, 1024]];
+
+        let config = detect_model_type(&input_shape, &output_shapes, None).unwrap();
+
+        assert_eq!(config.model_type, ModelType::BirdNetV24);
+        assert_eq!(config.sample_rate, 48_000);
+        assert_eq!(config.segment_duration, 3.0);
+        assert_eq!(config.sample_count, 144_000);
+        assert_eq!(config.num_species, 6522);
+        assert_eq!(config.embedding_dim, Some(1024));
+    }
+
+    #[test]
+    fn test_detect_birdnet_v24_with_embeddings_dynamic_input() {
+        let input_shape = vec![-1, -1];
+        let output_shapes = vec![vec![-1, 6522], vec![-1, 1024]];
+
+        let config = detect_model_type(&input_shape, &output_shapes, None).unwrap();
+
+        assert_eq!(config.model_type, ModelType::BirdNetV24);
+        assert_eq!(config.embedding_dim, Some(1024));
+    }
+
+    #[test]
+    fn test_detect_birdnet_v24_with_embeddings_override() {
+        let input_shape = vec![1, 144_000];
+        let output_shapes = vec![vec![1, 6522], vec![1, 1024]];
+
+        let config =
+            detect_model_type(&input_shape, &output_shapes, Some(ModelType::BirdNetV24)).unwrap();
+
+        assert_eq!(config.model_type, ModelType::BirdNetV24);
+        assert_eq!(config.embedding_dim, Some(1024));
     }
 }

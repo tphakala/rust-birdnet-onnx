@@ -1,7 +1,7 @@
 /// Supported model types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ModelType {
-    /// `BirdNET` v2.4 - 48kHz, 3s segments, no embeddings.
+    /// `BirdNET` v2.4 - 48kHz, 3s segments, optional embeddings (when model has 2 outputs).
     BirdNetV24,
     /// `BirdNET` v3.0 - 32kHz, 5s segments, 1280-dim embeddings.
     BirdNetV30,
