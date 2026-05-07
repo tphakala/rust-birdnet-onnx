@@ -78,6 +78,7 @@
 mod batch_context;
 mod bsg;
 mod classifier;
+mod custom_classifier;
 pub mod cuda_config;
 mod detection;
 mod error;
@@ -97,6 +98,7 @@ pub mod xnnpack_config;
 pub use batch_context::BatchInferenceContext;
 pub use bsg::{BsgPostProcessor, BsgPostProcessorBuilder};
 pub use classifier::{Classifier, ClassifierBuilder};
+pub use custom_classifier::{CustomClassifier, CustomClassifierBuilder};
 pub use cuda_config::{ArenaExtendStrategy, CUDAConfig};
 pub use error::{Error, Result};
 pub use execution_providers::available_execution_providers;
