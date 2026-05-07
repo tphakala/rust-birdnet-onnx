@@ -6,7 +6,7 @@ use crate::postprocess::top_k_predictions;
 use crate::types::{ModelType, Prediction};
 use ndarray::Array2;
 use ort::session::Session;
-use ort::value::{Outlet, Value};
+use ort::value::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
