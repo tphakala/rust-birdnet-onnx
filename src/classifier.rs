@@ -992,9 +992,10 @@ impl Classifier {
         let num_species = self.inner.config.num_species;
 
         match model_type {
-            ModelType::BirdNetV24
-                if let Some(embedding_dim) = self.inner.config.embedding_dim =>
-            {
+            ModelType::BirdNetV24 if self.inner.config.embedding_dim.is_some() => {
+                let embedding_dim = self.inner.config.embedding_dim.ok_or_else(|| {
+                    Error::Inference("embedding_dim missing for v2.4 model with embeddings".into())
+                })?;
                 let logits_flat = extract_tensor_data(outputs, 0)?;
                 let emb_flat = extract_tensor_data(outputs, 1)?;
 

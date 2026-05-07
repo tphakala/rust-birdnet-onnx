@@ -199,22 +199,18 @@ fn build_config_with_override(
     }
 
     let (embedding_dim, num_species) = match model_type {
-        ModelType::BirdNetV24 => {
-            match output_shapes.len() {
-                1 => (None, extract_last_dim(&output_shapes[0])?),
-                2 => (
-                    Some(extract_last_dim(&output_shapes[1])?),
-                    extract_last_dim(&output_shapes[0])?,
-                ),
-                n => {
-                    return Err(Error::ModelDetection {
-                        reason: format!(
-                            "BirdNET v2.4 expects 1 or 2 outputs, got {n}"
-                        ),
-                    });
-                }
+        ModelType::BirdNetV24 => match output_shapes.len() {
+            1 => (None, extract_last_dim(&output_shapes[0])?),
+            2 => (
+                Some(extract_last_dim(&output_shapes[1])?),
+                extract_last_dim(&output_shapes[0])?,
+            ),
+            n => {
+                return Err(Error::ModelDetection {
+                    reason: format!("BirdNET v2.4 expects 1 or 2 outputs, got {n}"),
+                });
             }
-        }
+        },
         ModelType::BirdNetV30 => {
             if output_shapes.len() != 2 {
                 return Err(Error::ModelDetection {

@@ -167,10 +167,7 @@ impl CustomClassifier {
     /// Returns an error if any embedding length does not match the expected
     /// input dimension, the input tensor cannot be created, or inference fails.
     #[allow(clippy::significant_drop_tightening)] // outputs borrows from session; early drop is not possible
-    pub fn predict_batch(
-        &self,
-        embeddings_batch: &[Vec<f32>],
-    ) -> Result<Vec<Vec<Prediction>>> {
+    pub fn predict_batch(&self, embeddings_batch: &[Vec<f32>]) -> Result<Vec<Vec<Prediction>>> {
         if embeddings_batch.is_empty() {
             return Ok(Vec::new());
         }
@@ -190,9 +187,8 @@ impl CustomClassifier {
             .flat_map(|e| e.iter().copied())
             .collect();
 
-        let input =
-            Array2::from_shape_vec((batch_size, self.input_dim), flat)
-                .map_err(|e| Error::Inference(format!("failed to create batch input: {e}")))?;
+        let input = Array2::from_shape_vec((batch_size, self.input_dim), flat)
+            .map_err(|e| Error::Inference(format!("failed to create batch input: {e}")))?;
 
         let input_value = Value::from_array(input)
             .map_err(|e| Error::Inference(format!("failed to create input tensor: {e}")))?;
@@ -207,8 +203,7 @@ impl CustomClassifier {
             .run(ort::inputs![input_value.view()])
             .map_err(|e| Error::Inference(e.to_string()))?;
 
-        let all_logits =
-            extract_tensor_data(&outputs, 0, batch_size * self.num_classes)?;
+        let all_logits = extract_tensor_data(&outputs, 0, batch_size * self.num_classes)?;
 
         let mut results = Vec::with_capacity(batch_size);
         for i in 0..batch_size {
@@ -254,13 +249,15 @@ fn extract_last_dim(outlets: &[ort::value::Outlet], role: &str) -> Result<usize>
         .first()
         .ok_or_else(|| Error::Inference(format!("custom classifier has no {role}s")))?;
 
-    let shape = info.dtype().tensor_shape().ok_or_else(|| {
-        Error::Inference(format!("custom classifier {role} is not a tensor"))
-    })?;
+    let shape = info
+        .dtype()
+        .tensor_shape()
+        .ok_or_else(|| Error::Inference(format!("custom classifier {role} is not a tensor")))?;
 
-    let last = shape.last().copied().ok_or_else(|| {
-        Error::Inference(format!("custom classifier {role} has empty shape"))
-    })?;
+    let last = shape
+        .last()
+        .copied()
+        .ok_or_else(|| Error::Inference(format!("custom classifier {role} has empty shape")))?;
 
     if last < 0 {
         return Err(Error::Inference(format!(
@@ -269,7 +266,9 @@ fn extract_last_dim(outlets: &[ort::value::Outlet], role: &str) -> Result<usize>
     }
 
     usize::try_from(last).map_err(|_| {
-        Error::Inference(format!("custom classifier {role} dimension overflows usize"))
+        Error::Inference(format!(
+            "custom classifier {role} dimension overflows usize"
+        ))
     })
 }
 
