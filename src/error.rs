@@ -31,6 +31,15 @@ pub enum Error {
         reason: String,
     },
 
+    /// Embedding input has wrong dimension for custom classifier.
+    #[error("embedding dimension mismatch: classifier expects {expected}, got {got}")]
+    EmbeddingDimMismatch {
+        /// Expected dimension.
+        expected: usize,
+        /// Actual dimension.
+        got: usize,
+    },
+
     /// Number of labels doesn't match model output size.
     #[error("label count mismatch: model expects {expected}, got {got}")]
     LabelCount {
