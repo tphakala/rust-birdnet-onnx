@@ -164,10 +164,10 @@ mod tests {
     fn test_inference_options_builder() {
         let token = CancellationToken::new();
         let opts = InferenceOptions::new()
-            .with_timeout(Duration::from_secs(60))
+            .with_timeout(Duration::from_mins(1))
             .with_cancellation_token(token);
 
-        assert_eq!(opts.timeout, Some(Duration::from_secs(60)));
+        assert_eq!(opts.timeout, Some(Duration::from_mins(1)));
         assert!(opts.cancellation_token.is_some());
         assert!(opts.needs_monitor());
     }
