@@ -944,8 +944,18 @@ impl Classifier {
         let model_type = self.inner.config.model_type;
 
         let (embeddings, logits) = match model_type {
-            ModelType::BirdNetV24 | ModelType::BsgFinland => {
-                // Single output: predictions
+            ModelType::BirdNetV24 => {
+                if self.inner.config.embedding_dim.is_some() {
+                    // v2.4 with embeddings: predictions at 0, embeddings at 1
+                    let logits = extract_tensor_data(outputs, 0)?;
+                    let embeddings = extract_tensor_data(outputs, 1)?;
+                    (Some(embeddings), logits)
+                } else {
+                    let logits = extract_tensor_data(outputs, 0)?;
+                    (None, logits)
+                }
+            }
+            ModelType::BsgFinland => {
                 let logits = extract_tensor_data(outputs, 0)?;
                 (None, logits)
             }
@@ -983,6 +993,36 @@ impl Classifier {
         let num_species = self.inner.config.num_species;
 
         match model_type {
+            ModelType::BirdNetV24 if self.inner.config.embedding_dim.is_some() => {
+                let embedding_dim = self.inner.config.embedding_dim.ok_or_else(|| {
+                    Error::Inference(
+                        "embedding_dim missing for v2.4 model with embeddings".into(),
+                    )
+                })?;
+                let logits_flat = extract_tensor_data(outputs, 0)?;
+                let emb_flat = extract_tensor_data(outputs, 1)?;
+
+                (0..batch_size)
+                    .map(|i| {
+                        let emb_start = i * embedding_dim;
+                        let emb_end = emb_start + embedding_dim;
+                        let embeddings = emb_flat[emb_start..emb_end].to_vec();
+
+                        let logits_start = i * num_species;
+                        let logits_end = logits_start + num_species;
+                        let logits = &logits_flat[logits_start..logits_end];
+
+                        let predictions = self.select_top_k(logits);
+
+                        Ok(PredictionResult {
+                            model_type,
+                            predictions,
+                            embeddings: Some(embeddings),
+                            raw_scores: logits.to_vec(),
+                        })
+                    })
+                    .collect()
+            }
             ModelType::BirdNetV24 | ModelType::BsgFinland => {
                 let logits_flat = extract_tensor_data(outputs, 0)?;
 
