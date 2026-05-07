@@ -945,13 +945,12 @@ impl Classifier {
 
         let (embeddings, logits) = match model_type {
             ModelType::BirdNetV24 => {
+                // predictions are always at output 0; embeddings at 1 only for v2.4 with embedding export
+                let logits = extract_tensor_data(outputs, 0)?;
                 if self.inner.config.embedding_dim.is_some() {
-                    // v2.4 with embeddings: predictions at 0, embeddings at 1
-                    let logits = extract_tensor_data(outputs, 0)?;
                     let embeddings = extract_tensor_data(outputs, 1)?;
                     (Some(embeddings), logits)
                 } else {
-                    let logits = extract_tensor_data(outputs, 0)?;
                     (None, logits)
                 }
             }

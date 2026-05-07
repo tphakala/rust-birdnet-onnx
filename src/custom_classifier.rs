@@ -6,14 +6,14 @@ use crate::postprocess::top_k_predictions;
 use crate::types::{ModelType, Prediction};
 use ndarray::Array2;
 use ort::session::Session;
-use ort::value::Value;
+use ort::value::{Outlet, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 /// A lightweight classifier that runs on embedding vectors from a primary model.
 ///
 /// Used for custom classification heads (e.g., bat species detection from
-/// BirdNET embeddings).
+/// `BirdNET` embeddings).
 #[derive(Debug)]
 pub struct CustomClassifier {
     session: Mutex<Session>,
@@ -56,14 +56,14 @@ impl CustomClassifierBuilder {
 
     /// Set the number of top predictions to return (default: all classes).
     #[must_use]
-    pub fn top_k(mut self, k: usize) -> Self {
+    pub const fn top_k(mut self, k: usize) -> Self {
         self.top_k = Some(k);
         self
     }
 
     /// Set the minimum confidence threshold.
     #[must_use]
-    pub fn min_confidence(mut self, threshold: f32) -> Self {
+    pub const fn min_confidence(mut self, threshold: f32) -> Self {
         self.min_confidence = Some(threshold);
         self
     }
@@ -83,8 +83,8 @@ impl CustomClassifierBuilder {
             .commit_from_file(&model_path)
             .map_err(Error::ModelLoad)?;
 
-        let input_dim = extract_last_dim_input(&session, "input")?;
-        let num_classes = extract_last_dim_output(&session, "output")?;
+        let input_dim = extract_last_dim(session.inputs(), "input")?;
+        let num_classes = extract_last_dim(session.outputs(), "output")?;
 
         let labels = labels::load_labels_from_file(&labels_path, ModelType::BirdNetV24)?;
 
@@ -121,6 +121,7 @@ impl CustomClassifier {
     ///
     /// Returns an error if the embedding length does not match the expected
     /// input dimension, the input tensor cannot be created, or inference fails.
+    #[allow(clippy::significant_drop_tightening)] // outputs borrows from session; early drop is not possible
     pub fn predict(&self, embeddings: &[f32]) -> Result<Vec<Prediction>> {
         if embeddings.len() != self.input_dim {
             return Err(Error::EmbeddingDimMismatch {
@@ -140,6 +141,7 @@ impl CustomClassifier {
             .lock()
             .map_err(|e| Error::Inference(format!("session lock poisoned: {e}")))?;
 
+        // outputs borrows from session, so session must stay alive until extraction is done
         let outputs = session
             .run(ort::inputs![input_value.view()])
             .map_err(|e| Error::Inference(e.to_string()))?;
@@ -160,6 +162,7 @@ impl CustomClassifier {
     ///
     /// Returns an error if any embedding length does not match the expected
     /// input dimension, the input tensor cannot be created, or inference fails.
+    #[allow(clippy::significant_drop_tightening)] // outputs borrows from session; early drop is not possible
     pub fn predict_batch(
         &self,
         embeddings_batch: &[Vec<f32>],
@@ -195,6 +198,7 @@ impl CustomClassifier {
             .lock()
             .map_err(|e| Error::Inference(format!("session lock poisoned: {e}")))?;
 
+        // outputs borrows from session, so session must stay alive until extraction is done
         let outputs = session
             .run(ort::inputs![input_value.view()])
             .map_err(|e| Error::Inference(e.to_string()))?;
@@ -227,21 +231,22 @@ impl CustomClassifier {
 
     /// Return the embedding dimension this classifier expects.
     #[must_use]
-    pub fn input_dim(&self) -> usize {
+    pub const fn input_dim(&self) -> usize {
         self.input_dim
     }
 
     /// Return the number of output classes.
     #[must_use]
-    pub fn num_classes(&self) -> usize {
+    pub const fn num_classes(&self) -> usize {
         self.num_classes
     }
 }
 
-/// Extract the last dimension of the first input tensor.
-fn extract_last_dim_input(session: &Session, role: &str) -> Result<usize> {
-    let inputs = session.inputs();
-    let info = inputs
+/// Extract the last dimension of the first tensor in a slice of outlets.
+///
+/// `role` is used only in error messages ("input" or "output").
+fn extract_last_dim(outlets: &[ort::value::Outlet], role: &str) -> Result<usize> {
+    let info = outlets
         .first()
         .ok_or_else(|| Error::Inference(format!("custom classifier has no {role}s")))?;
 
@@ -259,31 +264,9 @@ fn extract_last_dim_input(session: &Session, role: &str) -> Result<usize> {
         )));
     }
 
-    Ok(last as usize)
-}
-
-/// Extract the last dimension of the first output tensor.
-fn extract_last_dim_output(session: &Session, role: &str) -> Result<usize> {
-    let outputs = session.outputs();
-    let info = outputs
-        .first()
-        .ok_or_else(|| Error::Inference(format!("custom classifier has no {role}s")))?;
-
-    let shape = info.dtype().tensor_shape().ok_or_else(|| {
-        Error::Inference(format!("custom classifier {role} is not a tensor"))
-    })?;
-
-    let last = shape.last().copied().ok_or_else(|| {
-        Error::Inference(format!("custom classifier {role} has empty shape"))
-    })?;
-
-    if last < 0 {
-        return Err(Error::Inference(format!(
-            "custom classifier {role} has dynamic last dimension"
-        )));
-    }
-
-    Ok(last as usize)
+    usize::try_from(last).map_err(|_| {
+        Error::Inference(format!("custom classifier {role} dimension overflows usize"))
+    })
 }
 
 /// Extract flat f32 data from session outputs at the given index.
@@ -305,7 +288,7 @@ fn extract_tensor_data(
         .try_extract_tensor::<f32>()
         .map_err(|e| Error::Inference(format!("failed to extract output tensor: {e}")))?;
 
-    let flat: Vec<f32> = data.iter().copied().collect();
+    let flat = data.to_vec();
 
     if flat.len() < expected_len {
         return Err(Error::Inference(format!(
