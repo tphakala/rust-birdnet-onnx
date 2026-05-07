@@ -313,6 +313,22 @@ impl BatchInferenceContext {
         batch_size: usize,
     ) -> Result<(Option<Vec<f32>>, Vec<f32>)> {
         match self.model_type {
+            ModelType::BirdNetV24 if self.embedding_dim.is_some() => {
+                let embedding_dim = self.embedding_dim.ok_or_else(|| {
+                    Error::Inference("embedding_dim required for v2.4 with embeddings".into())
+                })?;
+                let output_0 = self.output_names.first().ok_or_else(|| {
+                    Error::Inference("model missing first output tensor".to_string())
+                })?;
+                let output_1 = self.output_names.get(1).ok_or_else(|| {
+                    Error::Inference("model missing second output tensor".to_string())
+                })?;
+                let logits =
+                    Self::extract_tensor_data(outputs, output_0, batch_size * self.num_species)?;
+                let embeddings =
+                    Self::extract_tensor_data(outputs, output_1, batch_size * embedding_dim)?;
+                Ok((Some(embeddings), logits))
+            }
             ModelType::BirdNetV24 | ModelType::BsgFinland => {
                 let output_name = self
                     .output_names
