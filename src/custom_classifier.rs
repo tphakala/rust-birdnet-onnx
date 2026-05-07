@@ -3,7 +3,7 @@
 use crate::error::{Error, Result};
 use crate::labels;
 use crate::postprocess::top_k_predictions;
-use crate::types::{ModelType, Prediction};
+use crate::types::Prediction;
 use ndarray::Array2;
 use ort::session::Session;
 use ort::value::Value;
@@ -86,7 +86,11 @@ impl CustomClassifierBuilder {
         let input_dim = extract_last_dim(session.inputs(), "input")?;
         let num_classes = extract_last_dim(session.outputs(), "output")?;
 
-        let labels = labels::load_labels_from_file(&labels_path, ModelType::BirdNetV24)?;
+        let content = std::fs::read_to_string(&labels_path).map_err(|e| Error::LabelLoad {
+            path: labels_path.display().to_string(),
+            reason: e.to_string(),
+        })?;
+        let labels = labels::parse_labels(&content, crate::types::LabelFormat::Text)?;
 
         if labels.len() != num_classes {
             return Err(Error::LabelCount {
@@ -275,13 +279,13 @@ fn extract_tensor_data(
     index: usize,
     expected_len: usize,
 ) -> Result<Vec<f32>> {
-    let output_names: Vec<_> = outputs.keys().collect();
-    let name = output_names
-        .get(index)
+    let name = outputs
+        .keys()
+        .nth(index)
         .ok_or_else(|| Error::Inference(format!("missing output tensor at index {index}")))?;
 
     let tensor = outputs
-        .get(*name)
+        .get(name)
         .ok_or_else(|| Error::Inference(format!("missing output tensor '{name}'")))?;
 
     let (_, data) = tensor
