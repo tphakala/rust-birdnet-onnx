@@ -25,7 +25,7 @@ A Rust library for running inference on BirdNET, Perch, and [BSG Finland](https:
 
 | Model | Sample Rate | Segment | Embeddings | Notes |
 | ----- | ----------- | ------- | ---------- | ----- |
-| BirdNET v2.4 | 48 kHz | 3.0s | No | |
+| BirdNET v2.4 | 48 kHz | 3.0s | Optional (1024-dim) | Embeddings require [patched model](#custom-classifiers-on-embeddings) |
 | BirdNET v3.0 | 32 kHz | 5.0s | 1280-dim | |
 | Perch v2 | 32 kHz | 5.0s | Variable | |
 | [BSG Finland](https://github.com/luomus/BSG) | 48 kHz | 3.0s | No | 265 Finnish species, [fused model](https://huggingface.co/tphakala/BSG) |
@@ -382,6 +382,57 @@ birdnet-analyze recording.wav \
     --distribution-maps BSG_distribution_maps.bin \
     --lat 60.17 --lon 24.94 --day-of-year 150 \
     --csv results.csv
+```
+
+## Custom Classifiers on Embeddings
+
+`CustomClassifier` runs secondary ONNX models on embedding vectors extracted from a primary model. This enables custom classification heads trained on BirdNET embeddings, such as [BattyBirdNET](https://github.com/rdz-oss/BattyBirdNET-Analyzer) regional bat classifiers.
+
+### Prerequisites
+
+BirdNET v2.4 models with embedding output require a patched ONNX model that exposes the 1024-dim global average pooling layer as a second output. Use [birdnet-onnx-converter](https://github.com/tphakala/birdnet-onnx-converter):
+
+```bash
+python expose_embeddings.py --input birdnet-v24.onnx --output birdnet-v24-embeddings.onnx
+```
+
+### Usage
+
+```rust
+use birdnet_onnx::{Classifier, CustomClassifier, InferenceOptions};
+
+// Load BirdNET v2.4 with embeddings as the backbone
+let classifier = Classifier::builder()
+    .model_path("birdnet-v24-embeddings.onnx")
+    .labels_path("labels.txt")
+    .build()?;
+
+// Load a custom classifier (e.g., bat species)
+let bat_classifier = CustomClassifier::builder()
+    .model_path("BattyBirdNET-Bavaria-256kHz_fp32.onnx")
+    .labels_path("BattyBirdNET-Bavaria-256kHz_Labels.txt")
+    .min_confidence(0.1)
+    .build()?;
+
+// Run two-stage inference
+let result = classifier.predict(&audio_segment, &InferenceOptions::default())?;
+if let Some(embeddings) = &result.embeddings {
+    let bat_predictions = bat_classifier.predict(embeddings)?;
+    for pred in &bat_predictions {
+        println!("{}: {:.1}%", pred.species, pred.confidence * 100.0);
+    }
+}
+```
+
+### Batch Processing
+
+```rust
+let results = classifier.predict_batch(&segments, &InferenceOptions::default())?;
+let embeddings: Vec<Vec<f32>> = results
+    .iter()
+    .filter_map(|r| r.embeddings.clone())
+    .collect();
+let bat_results = bat_classifier.predict_batch(&embeddings)?;
 ```
 
 ## Development
