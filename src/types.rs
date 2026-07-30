@@ -98,6 +98,17 @@ pub struct ModelConfig {
     pub num_species: usize,
     /// Embedding dimension (None for v2.4).
     pub embedding_dim: Option<usize>,
+    /// Index of the output tensor carrying class scores.
+    ///
+    /// Resolved once during detection so no consumer has to hardcode it.
+    /// Output ORDER is not a property of a model family: `BirdNET` v3.0 ships
+    /// the same weights with the class scores named `predictions` in its fp32
+    /// export and `output` in its fp16 export, and an assumed index that is
+    /// wrong reads the embedding tensor as class scores, which is silent
+    /// nonsense rather than an error.
+    pub predictions_index: usize,
+    /// Index of the output tensor carrying embeddings, when the model has one.
+    pub embeddings_index: Option<usize>,
 }
 
 /// Single species prediction.
