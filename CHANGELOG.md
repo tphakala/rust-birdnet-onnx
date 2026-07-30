@@ -16,6 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Species Distribution Model (SDM) adjustment using migration curves and geographic distribution maps
   - CLI flags: `--calibration`, `--migration`, `--distribution-maps`, `--lat`, `--lon`, `--day-of-year`, `--csv`
 
+### Fixed
+
+- **A fresh install of the crate did not compile.** The `ort` requirement was
+  written as `"2.0.0-rc.11"`, which cargo reads as a caret range, so any new
+  dependant resolved `ort` to the newest release candidate. rc.13 relocated the
+  `ort::ep::*` execution provider types and the build failed on unresolved
+  imports. `ort` is now pinned to `=2.0.0-rc.12`, the only release candidate
+  this crate compiles against (rc.11 does not export `IoBinding`).
+- The README installation snippets asked for `birdnet-onnx = "2.0"`, which
+  cargo never matches because every 2.0.0 release so far is a pre-release. Both
+  snippets now name the version in full.
+
 ## [2.0.0-rc.1] - 2026-01-04
 
 ### Changed
