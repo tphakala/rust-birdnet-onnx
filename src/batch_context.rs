@@ -275,12 +275,11 @@ impl BatchInferenceContext {
                     })?;
             }
             ModelType::BirdNetV24 | ModelType::BsgFinland => {
-                let output_name = self
-                    .output_names
-                    .first()
-                    .ok_or_else(|| Error::Inference("model has no output tensors".to_string()))?;
+                // Cloned so the borrow of `self.output_names` ends before
+                // `self.io_binding` is borrowed mutably.
+                let output_name = self.predictions_output_name()?.to_string();
                 self.io_binding
-                    .bind_output_to_device(output_name, &mem_info)
+                    .bind_output_to_device(&output_name, &mem_info)
                     .map_err(|e| Error::Inference(format!("failed to bind output: {e}")))?;
             }
             ModelType::BirdNetV30 => {
