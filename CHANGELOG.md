@@ -18,6 +18,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`Perch` v2 output roles are resolved by name rather than by position.** The
+  class scores were read from output index 3 and the embeddings from index 0,
+  hardcoded at all three detection sites. That is correct for every published
+  `Perch` export, but nothing verified it, so a re-export that reordered its
+  outputs was read against the wrong tensors. Moving the class scores off index
+  3 is caught by the existing label-count check, but swapping `embedding` with
+  `spatial_embedding` is not, because both are 1536 wide: the 4-D spatial
+  tensor is then returned as the pooled embedding with no error at all. The
+  class-score output is now matched on `label` and the embeddings on
+  `embedding`/`embeddings`, matched exactly so that `spatial_embedding` cannot
+  stand in for `embedding`. A name that identifies a role wins; the published
+  3/0 layout fills only the role the names leave open. An export whose named
+  role lands on the index the layout reserves for the other one is reported as
+  a detection error rather than resolved to a guess. That error is not bypassed
+  by `--model perch`, which selects the model family and not the output layout.
+  No published model is affected: every published `Perch` export names both
+  roles, and an export with no usable names still gets the 3/0 layout.
 - **A fresh install of the crate did not compile.** The `ort` requirement was
   written as `"2.0.0-rc.11"`, which cargo reads as a caret range, so any new
   dependant resolved `ort` to the newest release candidate. rc.13 relocated the
