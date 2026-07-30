@@ -7,17 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- **BSG Finland model support** ([BSG](https://github.com/luomus/BSG))
-  - New `ModelType::BsgFinland` for the fused BirdNET v2.4 + Finnish classification head (265 species)
-  - Pre-sigmoided output handling (no double-sigmoid)
-  - `BsgPostProcessor` with per-species logistic calibration (Platt scaling)
-  - Species Distribution Model (SDM) adjustment using migration curves and geographic distribution maps
-  - CLI flags: `--calibration`, `--migration`, `--distribution-maps`, `--lat`, `--lon`, `--day-of-year`, `--csv`
+## [2.0.0-rc.16] - 2026-07-30
 
 ### Fixed
 
+- **`BirdNET` v3.0 models failed to load.** Two-output models had their roles
+  assigned by position, class scores first and embeddings second. Every
+  published v3.0 export uses the opposite order, so the 1280-wide embedding
+  tensor was read as the class scores and the model was rejected with a label
+  count mismatch. Roles for two-output models are now resolved from the output
+  names, falling back to the documented order when the names say nothing.
+  ([#94](https://github.com/tphakala/rust-birdnet-onnx/pull/94))
 - **`Perch` v2 output roles are resolved by name rather than by position.** The
   class scores were read from output index 3 and the embeddings from index 0,
   hardcoded at all three detection sites. That is correct for every published
@@ -44,6 +44,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The README installation snippets asked for `birdnet-onnx = "2.0"`, which
   cargo never matches because every 2.0.0 release so far is a pre-release. Both
   snippets now name the version in full.
+
+## [2.0.0-rc.7] - 2026-02-08
+
+### Added
+
+- **BSG Finland model support** ([BSG](https://github.com/luomus/BSG))
+  - New `ModelType::BsgFinland` for the fused BirdNET v2.4 + Finnish classification head (265 species)
+  - Pre-sigmoided output handling (no double-sigmoid)
+  - `BsgPostProcessor` with per-species logistic calibration (Platt scaling)
+  - Species Distribution Model (SDM) adjustment using migration curves and geographic distribution maps
+  - CLI flags: `--calibration`, `--migration`, `--distribution-maps`, `--lat`, `--lon`, `--day-of-year`, `--csv`
 
 ## [2.0.0-rc.1] - 2026-01-04
 
