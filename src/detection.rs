@@ -502,6 +502,67 @@ mod tests {
     }
 
     #[test]
+    fn test_every_detected_config_indexes_an_output_that_exists() {
+        // Inference now reads whatever these point at, for every family, so an
+        // index outside the model's outputs would be an out-of-bounds read
+        // rather than the loud shape mismatch it used to be.
+        let cases: Vec<(Vec<i64>, Vec<Vec<i64>>, Vec<String>)> = vec![
+            (vec![1, 144_000], vec![vec![1, 6522]], names(&["output"])),
+            (
+                vec![1, 144_000],
+                vec![vec![1, 6522], vec![1, 1024]],
+                names(&["output", "model/GLOBAL_AVG_POOL/Mean_reduced_0"]),
+            ),
+            (
+                vec![1, 160_000],
+                vec![vec![1, 11_560], vec![1, 1280]],
+                names(&["predictions", "embeddings"]),
+            ),
+            (
+                vec![1, 160_000],
+                vec![vec![1, 422], vec![1, 1280]],
+                names(&["output", "embeddings"]),
+            ),
+            (
+                vec![1, 160_000],
+                vec![
+                    vec![1, 1536],
+                    vec![1, 16, 4, 1536],
+                    vec![1, 500, 128],
+                    vec![1, 638],
+                ],
+                names(&["embedding", "spatial_embedding", "spectrogram", "label"]),
+            ),
+        ];
+
+        for (input_shape, output_shapes, output_names) in cases {
+            let config =
+                detect_model_type(&input_shape, &output_shapes, &output_names, None).unwrap();
+
+            assert!(
+                config.predictions_index < output_shapes.len(),
+                "{:?}: class-score index {} is out of range",
+                output_names,
+                config.predictions_index
+            );
+            assert_eq!(
+                extract_last_dim(&output_shapes[config.predictions_index]).unwrap(),
+                config.num_species,
+                "{output_names:?}: class-score index does not point at the class scores"
+            );
+
+            if let Some(index) = config.embeddings_index {
+                assert!(index < output_shapes.len());
+                assert_eq!(
+                    extract_last_dim(&output_shapes[index]).unwrap(),
+                    config.embedding_dim.unwrap(),
+                    "{output_names:?}: embeddings index does not point at the embeddings"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn test_an_override_still_resolves_roles_from_names() {
         // Passing --model v30 used to bypass name resolution and assume the
         // layout, so an explicit override failed on exactly the models an

@@ -261,17 +261,15 @@ impl BatchInferenceContext {
 
         match self.model_type {
             ModelType::BirdNetV24 if self.embedding_dim.is_some() => {
-                let output_0 = self.output_names.first().ok_or_else(|| {
-                    Error::Inference("model missing first output tensor".to_string())
-                })?;
-                let output_1 = self.output_names.get(1).ok_or_else(|| {
-                    Error::Inference("model missing second output tensor".to_string())
-                })?;
+                // Cloned so the borrow of `self.output_names` ends before
+                // `self.io_binding` is borrowed mutably below.
+                let logits_name = self.predictions_output_name()?.to_string();
+                let embeddings_name = self.embeddings_output_name()?.to_string();
                 self.io_binding
-                    .bind_output_to_device(output_0, &mem_info)
+                    .bind_output_to_device(&logits_name, &mem_info)
                     .map_err(|e| Error::Inference(format!("failed to bind logits output: {e}")))?;
                 self.io_binding
-                    .bind_output_to_device(output_1, &mem_info)
+                    .bind_output_to_device(&embeddings_name, &mem_info)
                     .map_err(|e| {
                         Error::Inference(format!("failed to bind embeddings output: {e}"))
                     })?;
@@ -338,25 +336,24 @@ impl BatchInferenceContext {
                 let embedding_dim = self.embedding_dim.ok_or_else(|| {
                     Error::Inference("embedding_dim required for v2.4 with embeddings".into())
                 })?;
-                let output_0 = self.output_names.first().ok_or_else(|| {
-                    Error::Inference("model missing first output tensor".to_string())
-                })?;
-                let output_1 = self.output_names.get(1).ok_or_else(|| {
-                    Error::Inference("model missing second output tensor".to_string())
-                })?;
-                let logits =
-                    Self::extract_tensor_data(outputs, output_0, batch_size * self.num_species)?;
-                let embeddings =
-                    Self::extract_tensor_data(outputs, output_1, batch_size * embedding_dim)?;
+                let logits = Self::extract_tensor_data(
+                    outputs,
+                    self.predictions_output_name()?,
+                    batch_size * self.num_species,
+                )?;
+                let embeddings = Self::extract_tensor_data(
+                    outputs,
+                    self.embeddings_output_name()?,
+                    batch_size * embedding_dim,
+                )?;
                 Ok((Some(embeddings), logits))
             }
             ModelType::BirdNetV24 | ModelType::BsgFinland => {
-                let output_name = self
-                    .output_names
-                    .first()
-                    .ok_or_else(|| Error::Inference("model has no output tensors".to_string()))?;
-                let logits =
-                    Self::extract_tensor_data(outputs, output_name, batch_size * self.num_species)?;
+                let logits = Self::extract_tensor_data(
+                    outputs,
+                    self.predictions_output_name()?,
+                    batch_size * self.num_species,
+                )?;
                 Ok((None, logits))
             }
             ModelType::BirdNetV30 => {

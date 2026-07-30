@@ -958,38 +958,15 @@ impl Classifier {
     fn process_outputs(&self, outputs: &ort::session::SessionOutputs) -> Result<PredictionResult> {
         let model_type = self.inner.config.model_type;
 
-        let (embeddings, logits) = match model_type {
-            ModelType::BirdNetV24 => {
-                // predictions are always at output 0; embeddings at 1 only for v2.4 with embedding export
-                let logits = extract_tensor_data(outputs, 0)?;
-                if self.inner.config.embedding_dim.is_some() {
-                    let embeddings = extract_tensor_data(outputs, 1)?;
-                    (Some(embeddings), logits)
-                } else {
-                    (None, logits)
-                }
-            }
-            ModelType::BsgFinland => {
-                let logits = extract_tensor_data(outputs, 0)?;
-                (None, logits)
-            }
-            ModelType::BirdNetV30 => {
-                // Indices resolved during detection, because output order is
-                // not a property of the family: the fp32 and fp16 exports of
-                // the same weights name their class scores differently.
-                let logits = extract_tensor_data(outputs, self.inner.config.predictions_index)?;
-                let embeddings = match self.inner.config.embeddings_index {
-                    Some(index) => Some(extract_tensor_data(outputs, index)?),
-                    None => None,
-                };
-                (embeddings, logits)
-            }
-            ModelType::PerchV2 => {
-                // Four outputs: embedding at 0, spatial_embedding at 1, spectrogram at 2, predictions at 3
-                let embeddings = extract_tensor_data(outputs, 0)?;
-                let logits = extract_tensor_data(outputs, 3)?;
-                (Some(embeddings), logits)
-            }
+        // Every family reads the same two tensors, and detection already worked
+        // out which is which. Keeping a per-family index here is what let the
+        // v3.0 assumption survive in five places at once, so there is now one
+        // rule: ask the config. A model with no embeddings output simply has no
+        // embeddings index.
+        let logits = extract_tensor_data(outputs, self.inner.config.predictions_index)?;
+        let embeddings = match self.inner.config.embeddings_index {
+            Some(index) => Some(extract_tensor_data(outputs, index)?),
+            None => None,
         };
 
         let predictions = self.select_top_k(&logits);
