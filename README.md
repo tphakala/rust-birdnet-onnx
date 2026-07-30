@@ -36,8 +36,11 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-birdnet-onnx = "2.0"
+birdnet-onnx = "2.0.0-rc.16"
 ```
+
+2.0.0 is still in release candidates, and cargo does not match a pre-release
+from a plain `"2.0"` requirement, so the version has to be spelled out in full.
 
 ### ONNX Runtime Linking
 
@@ -51,7 +54,7 @@ For dynamic linking (loads ONNX Runtime at runtime):
 
 ```toml
 [dependencies]
-birdnet-onnx = { version = "2.0", features = ["load-dynamic"] }
+birdnet-onnx = { version = "2.0.0-rc.16", features = ["load-dynamic"] }
 ```
 
 With dynamic linking, you must ensure the correct ONNX Runtime library is available:
