@@ -506,7 +506,10 @@ mod tests {
         // Inference now reads whatever these point at, for every family, so an
         // index outside the model's outputs would be an out-of-bounds read
         // rather than the loud shape mismatch it used to be.
-        let cases: Vec<(Vec<i64>, Vec<Vec<i64>>, Vec<String>)> = vec![
+        /// One model's shape: input shape, output shapes, output names.
+        type Case = (Vec<i64>, Vec<Vec<i64>>, Vec<String>);
+
+        let cases: Vec<Case> = vec![
             (vec![1, 144_000], vec![vec![1, 6522]], names(&["output"])),
             (
                 vec![1, 144_000],

@@ -1035,7 +1035,8 @@ impl Classifier {
                     .collect()
             }
             ModelType::BirdNetV24 | ModelType::BsgFinland => {
-                let logits_flat = extract_tensor_data(outputs, 0)?;
+                let logits_flat =
+                    extract_tensor_data(outputs, self.inner.config.predictions_index)?;
 
                 (0..batch_size)
                     .map(|i| {
