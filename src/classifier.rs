@@ -387,9 +387,15 @@ impl ClassifierBuilder {
         // Extract input/output shapes for model detection
         let input_shape = extract_input_shape(&session)?;
         let output_shapes = extract_output_shapes(&session)?;
+        let output_names = extract_output_names(&session);
 
         // Detect model type
-        let config = detect_model_type(&input_shape, &output_shapes, self.model_type_override)?;
+        let config = detect_model_type(
+            &input_shape,
+            &output_shapes,
+            &output_names,
+            self.model_type_override,
+        )?;
 
         // Load labels
         let labels = match labels_source {
@@ -437,7 +443,16 @@ fn extract_input_shape(session: &Session) -> Result<Vec<i64>> {
     Ok(shape.iter().copied().collect())
 }
 
-/// Extract output tensor shapes from session
+/// Extract output tensor names from a session, in graph order.
+fn extract_output_names(session: &Session) -> Vec<String> {
+    session
+        .outputs()
+        .iter()
+        .map(|output| output.name().to_string())
+        .collect()
+}
+
+/// Extract output tensor shapes from a session.
 fn extract_output_shapes(session: &Session) -> Result<Vec<Vec<i64>>> {
     session
         .outputs()
@@ -959,10 +974,15 @@ impl Classifier {
                 (None, logits)
             }
             ModelType::BirdNetV30 => {
-                // Two outputs: embeddings at 0, predictions at 1
-                let embeddings = extract_tensor_data(outputs, 0)?;
-                let logits = extract_tensor_data(outputs, 1)?;
-                (Some(embeddings), logits)
+                // Indices resolved during detection, because output order is
+                // not a property of the family: the fp32 and fp16 exports of
+                // the same weights name their class scores differently.
+                let logits = extract_tensor_data(outputs, self.inner.config.predictions_index)?;
+                let embeddings = match self.inner.config.embeddings_index {
+                    Some(index) => Some(extract_tensor_data(outputs, index)?),
+                    None => None,
+                };
+                (embeddings, logits)
             }
             ModelType::PerchV2 => {
                 // Four outputs: embedding at 0, spatial_embedding at 1, spectrogram at 2, predictions at 3
@@ -983,6 +1003,24 @@ impl Classifier {
     }
 
     /// Process batch inference outputs
+    /// Class-score and embedding tensors for a batch, by resolved output index.
+    ///
+    /// One place that knows which output is which, so a family's layout is
+    /// stated once at detection rather than repeated per arm. The arms differed
+    /// on nothing else: v2.4, v3.0 and Perch all read the same two tensors and
+    /// slice them identically.
+    fn batch_tensors(
+        &self,
+        outputs: &ort::session::SessionOutputs,
+    ) -> Result<(Vec<f32>, Vec<f32>)> {
+        let embeddings_index = self.inner.config.embeddings_index.ok_or_else(|| {
+            Error::Inference("embeddings index missing for a model with embeddings".into())
+        })?;
+        let logits = extract_tensor_data(outputs, self.inner.config.predictions_index)?;
+        let embeddings = extract_tensor_data(outputs, embeddings_index)?;
+        Ok((logits, embeddings))
+    }
+
     fn process_batch_outputs(
         &self,
         outputs: &ort::session::SessionOutputs,
@@ -996,8 +1034,7 @@ impl Classifier {
                 let embedding_dim = self.inner.config.embedding_dim.ok_or_else(|| {
                     Error::Inference("embedding_dim missing for v2.4 model with embeddings".into())
                 })?;
-                let logits_flat = extract_tensor_data(outputs, 0)?;
-                let emb_flat = extract_tensor_data(outputs, 1)?;
+                let (logits_flat, emb_flat) = self.batch_tensors(outputs)?;
 
                 (0..batch_size)
                     .map(|i| {
@@ -1046,8 +1083,7 @@ impl Classifier {
                         "embedding_dim missing for model that requires embeddings".into(),
                     )
                 })?;
-                let emb_flat = extract_tensor_data(outputs, 0)?;
-                let logits_flat = extract_tensor_data(outputs, 1)?;
+                let (logits_flat, emb_flat) = self.batch_tensors(outputs)?;
 
                 (0..batch_size)
                     .map(|i| {
@@ -1076,8 +1112,7 @@ impl Classifier {
                         "embedding_dim missing for model that requires embeddings".into(),
                     )
                 })?;
-                let emb_flat = extract_tensor_data(outputs, 0)?;
-                let logits_flat = extract_tensor_data(outputs, 3)?; // predictions at index 3
+                let (logits_flat, emb_flat) = self.batch_tensors(outputs)?;
 
                 (0..batch_size)
                     .map(|i| {

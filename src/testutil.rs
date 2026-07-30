@@ -44,6 +44,17 @@ pub fn mock_config(model_type: ModelType) -> ModelConfig {
             ModelType::BirdNetV30 => Some(1024),
             ModelType::PerchV2 => Some(512),
         },
+        // The published layouts: class scores first for the two-output
+        // families, last for Perch's four.
+        predictions_index: match model_type {
+            ModelType::BirdNetV24 | ModelType::BsgFinland | ModelType::BirdNetV30 => 0,
+            ModelType::PerchV2 => 3,
+        },
+        embeddings_index: match model_type {
+            ModelType::BirdNetV24 | ModelType::BsgFinland => None,
+            ModelType::BirdNetV30 => Some(1),
+            ModelType::PerchV2 => Some(0),
+        },
     }
 }
 

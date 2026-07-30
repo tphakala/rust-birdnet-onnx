@@ -3,11 +3,71 @@
 use crate::error::{Error, Result};
 use crate::types::{ModelConfig, ModelType};
 
+/// Output names that identify an embeddings tensor, lowercased.
+///
+/// Deliberately keyed on the embeddings output rather than the class-score one.
+/// Across the supported exports the embeddings name is stable while the class
+/// scores answer to at least three different names: `BirdNET` v3.0 fp32 calls
+/// them `predictions`, its fp16 export of the SAME weights calls them `output`,
+/// and `Perch` v2 calls them `label`.
+const EMBEDDING_OUTPUT_NAMES: &[&str] = &["embeddings", "embedding"];
+
+/// Which output carries what, for a two-output model.
+///
+/// Resolved from names where they say so, because output ORDER is not a
+/// property of a model family. Every published `BirdNET` v3.0 export puts the
+/// embeddings second, which is the opposite of what this crate assumed until
+/// the models were tested against it, and reading the embedding tensor as class
+/// scores is silent nonsense rather than an error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct OutputRoles {
+    /// Index of the class-score tensor.
+    predictions: usize,
+    /// Index of the embeddings tensor.
+    embeddings: usize,
+}
+
+/// Locate the embeddings and class-score outputs of a two-output model.
+///
+/// Falls back to "class scores first, embeddings second" when the names say
+/// nothing, which is the layout of every published two-output model this crate
+/// has been tested against, `BirdNET` v3.0 and v2.4-with-embeddings alike.
+fn resolve_two_output_roles(output_names: &[String]) -> OutputRoles {
+    const FALLBACK: OutputRoles = OutputRoles {
+        predictions: 0,
+        embeddings: 1,
+    };
+
+    let embedding_positions: Vec<usize> = output_names
+        .iter()
+        .enumerate()
+        .filter(|(_, name)| {
+            let name = name.to_ascii_lowercase();
+            EMBEDDING_OUTPUT_NAMES.contains(&name.as_str())
+        })
+        .map(|(index, _)| index)
+        .collect();
+
+    // Exactly one match, or the name told us nothing useful. Two outputs both
+    // claiming to be embeddings is a model we do not understand, and guessing
+    // between them would be worse than the documented default.
+    match embedding_positions.as_slice() {
+        [embeddings] if output_names.len() == 2 => OutputRoles {
+            predictions: 1 - embeddings,
+            embeddings: *embeddings,
+        },
+        _ => FALLBACK,
+    }
+}
+
 /// Detects model type from ONNX input/output tensor shapes.
 ///
 /// # Arguments
 /// * `input_shape` - Input tensor shape, expected `[batch, samples]` or `[batch, 1, samples]`
 /// * `output_shapes` - Output tensor shapes
+/// * `output_names` - Output tensor names, in the same order as `output_shapes`.
+///   Pass an empty slice when they are unavailable, and detection falls back to
+///   positional layout.
 /// * `override_type` - Optional user override for ambiguous models (v3.0 vs `Perch`)
 ///
 /// # Errors
@@ -15,6 +75,7 @@ use crate::types::{ModelConfig, ModelType};
 pub fn detect_model_type(
     input_shape: &[i64],
     output_shapes: &[Vec<i64>],
+    output_names: &[String],
     override_type: Option<ModelType>,
 ) -> Result<ModelConfig> {
     let sample_count_opt = extract_sample_count(input_shape);
@@ -23,16 +84,16 @@ pub fn detect_model_type(
     // If user provided override, validate and use it
     if let Some(model_type) = override_type {
         let sample_count = sample_count_opt.unwrap_or_else(|| model_type.sample_count());
-        return build_config_with_override(model_type, sample_count, output_shapes);
+        return build_config_with_override(model_type, sample_count, output_shapes, output_names);
     }
 
     // If sample count is known, use it for detection
     if let Some(sample_count) = sample_count_opt {
-        return detect_from_sample_count(sample_count, num_outputs, output_shapes);
+        return detect_from_sample_count(sample_count, num_outputs, output_shapes, output_names);
     }
 
     // Input has dynamic dimensions - infer from output shapes
-    detect_from_outputs(num_outputs, output_shapes)
+    detect_from_outputs(num_outputs, output_shapes, output_names)
 }
 
 /// Detect model type from known sample count and output patterns.
@@ -40,6 +101,7 @@ fn detect_from_sample_count(
     sample_count: usize,
     num_outputs: usize,
     output_shapes: &[Vec<i64>],
+    output_names: &[String],
 ) -> Result<ModelConfig> {
     // Auto-detection based on sample count and output count
     match (sample_count, num_outputs) {
@@ -53,14 +115,16 @@ fn detect_from_sample_count(
                 sample_count: 144_000,
                 num_species,
                 embedding_dim: None,
+                predictions_index: 0,
+                embeddings_index: None,
             })
         }
 
-        // BirdNET v2.4 with embeddings: 144,000 samples, 2 outputs
-        // (predictions at 0, embeddings at 1)
+        // BirdNET v2.4 with embeddings: 144,000 samples, 2 outputs.
         (144_000, 2) => {
-            let num_species = extract_last_dim(&output_shapes[0])?;
-            let embedding_dim = extract_last_dim(&output_shapes[1])?;
+            let roles = resolve_two_output_roles(output_names);
+            let num_species = extract_last_dim(&output_shapes[roles.predictions])?;
+            let embedding_dim = extract_last_dim(&output_shapes[roles.embeddings])?;
             Ok(ModelConfig {
                 model_type: ModelType::BirdNetV24,
                 sample_rate: 48_000,
@@ -68,13 +132,16 @@ fn detect_from_sample_count(
                 sample_count: 144_000,
                 num_species,
                 embedding_dim: Some(embedding_dim),
+                predictions_index: roles.predictions,
+                embeddings_index: Some(roles.embeddings),
             })
         }
 
-        // `BirdNET` v3.0: 160,000 samples, 2 outputs (embeddings, predictions)
+        // `BirdNET` v3.0: 160,000 samples, 2 outputs.
         (160_000, 2) => {
-            let embedding_dim = extract_last_dim(&output_shapes[0])?;
-            let num_species = extract_last_dim(&output_shapes[1])?;
+            let roles = resolve_two_output_roles(output_names);
+            let embedding_dim = extract_last_dim(&output_shapes[roles.embeddings])?;
+            let num_species = extract_last_dim(&output_shapes[roles.predictions])?;
 
             Ok(ModelConfig {
                 model_type: ModelType::BirdNetV30,
@@ -83,6 +150,8 @@ fn detect_from_sample_count(
                 sample_count: 160_000,
                 num_species,
                 embedding_dim: Some(embedding_dim),
+                predictions_index: roles.predictions,
+                embeddings_index: Some(roles.embeddings),
             })
         }
 
@@ -98,6 +167,8 @@ fn detect_from_sample_count(
                 sample_count: 160_000,
                 num_species,
                 embedding_dim: Some(embedding_dim),
+                predictions_index: 3,
+                embeddings_index: Some(0),
             })
         }
 
@@ -110,8 +181,17 @@ fn detect_from_sample_count(
     }
 }
 
+/// Embedding width of `BirdNET` v3.0, the one two-output family this crate can
+/// name from its embedding tensor alone. v2.4's 1024 is not listed because it
+/// is the default rather than a signal.
+const V30_EMBEDDING_DIM: usize = 1280;
+
 /// Detect model type from output shapes when input dimensions are dynamic.
-fn detect_from_outputs(num_outputs: usize, output_shapes: &[Vec<i64>]) -> Result<ModelConfig> {
+fn detect_from_outputs(
+    num_outputs: usize,
+    output_shapes: &[Vec<i64>],
+    output_names: &[String],
+) -> Result<ModelConfig> {
     match num_outputs {
         // `BirdNET` v2.4: 1 output
         1 => {
@@ -123,39 +203,45 @@ fn detect_from_outputs(num_outputs: usize, output_shapes: &[Vec<i64>]) -> Result
                 sample_count: 144_000,
                 num_species,
                 embedding_dim: None,
+                predictions_index: 0,
+                embeddings_index: None,
             })
         }
 
-        // 2 outputs: either v2.4-with-embeddings or v3.0, distinguished by output order.
-        // v2.4 with embeddings: first output is large (predictions),
-        // second is small (1024 embeddings).
-        // v3.0: first output is small (1280 embeddings),
-        // second is large (predictions).
+        // 2 outputs: either v2.4-with-embeddings or v3.0.
+        //
+        // Which output is which comes from the names; which FAMILY it is comes
+        // from the embedding width, 1024 for v2.4 and 1280 for v3.0. The two
+        // questions are separate, and conflating them is what made this branch
+        // wrong: it decided the family by "is the first output bigger", which
+        // is true for a v3.0 export that puts its 11,560 class scores ahead of
+        // its 1,280-wide embeddings, so every such model was detected as v2.4
+        // and run at 48 kHz with a 3 second window.
         2 => {
-            let first_dim = extract_last_dim(&output_shapes[0])?;
-            let second_dim = extract_last_dim(&output_shapes[1])?;
+            let roles = resolve_two_output_roles(output_names);
+            let num_species = extract_last_dim(&output_shapes[roles.predictions])?;
+            let embedding_dim = extract_last_dim(&output_shapes[roles.embeddings])?;
 
-            if first_dim > second_dim {
-                // v2.4 pattern: predictions at 0, embeddings at 1
-                Ok(ModelConfig {
-                    model_type: ModelType::BirdNetV24,
-                    sample_rate: 48_000,
-                    segment_duration: 3.0,
-                    sample_count: 144_000,
-                    num_species: first_dim,
-                    embedding_dim: Some(second_dim),
-                })
+            // Only v3.0's width is a positive signal. v2.4 is the default for
+            // its own width and for anything unrecognised alike, because an
+            // embedding tensor narrower than the class scores is the shape both
+            // families share and so distinguishes nothing.
+            let model_type = if embedding_dim == V30_EMBEDDING_DIM {
+                ModelType::BirdNetV30
             } else {
-                // v3.0 pattern: embeddings at 0, predictions at 1
-                Ok(ModelConfig {
-                    model_type: ModelType::BirdNetV30,
-                    sample_rate: 32_000,
-                    segment_duration: 5.0,
-                    sample_count: 160_000,
-                    num_species: second_dim,
-                    embedding_dim: Some(first_dim),
-                })
-            }
+                ModelType::BirdNetV24
+            };
+
+            Ok(ModelConfig {
+                model_type,
+                sample_rate: model_type.sample_rate(),
+                segment_duration: model_type.segment_duration(),
+                sample_count: model_type.sample_count(),
+                num_species,
+                embedding_dim: Some(embedding_dim),
+                predictions_index: roles.predictions,
+                embeddings_index: Some(roles.embeddings),
+            })
         }
 
         // `Perch` v2: 4 outputs
@@ -170,6 +256,8 @@ fn detect_from_outputs(num_outputs: usize, output_shapes: &[Vec<i64>]) -> Result
                 sample_count: 160_000,
                 num_species,
                 embedding_dim: Some(embedding_dim),
+                predictions_index: 3,
+                embeddings_index: Some(0),
             })
         }
 
@@ -187,6 +275,7 @@ fn build_config_with_override(
     model_type: ModelType,
     sample_count: usize,
     output_shapes: &[Vec<i64>],
+    output_names: &[String],
 ) -> Result<ModelConfig> {
     let expected_samples = model_type.sample_count();
     if sample_count != expected_samples {
@@ -198,13 +287,28 @@ fn build_config_with_override(
         });
     }
 
-    let (embedding_dim, num_species) = match model_type {
+    // An override says which FAMILY this is. It says nothing about which output
+    // is which, so the roles are resolved from the names exactly as they are on
+    // the auto-detection path. Assuming a layout here was the reason `--model
+    // v30` failed on the published models in the same way auto-detection did.
+    let (embedding_dim, num_species, roles) = match model_type {
         ModelType::BirdNetV24 => match output_shapes.len() {
-            1 => (None, extract_last_dim(&output_shapes[0])?),
-            2 => (
-                Some(extract_last_dim(&output_shapes[1])?),
+            1 => (
+                None,
                 extract_last_dim(&output_shapes[0])?,
+                OutputRoles {
+                    predictions: 0,
+                    embeddings: 0,
+                },
             ),
+            2 => {
+                let roles = resolve_two_output_roles(output_names);
+                (
+                    Some(extract_last_dim(&output_shapes[roles.embeddings])?),
+                    extract_last_dim(&output_shapes[roles.predictions])?,
+                    roles,
+                )
+            }
             n => {
                 return Err(Error::ModelDetection {
                     reason: format!("BirdNET v2.4 expects 1 or 2 outputs, got {n}"),
@@ -220,9 +324,11 @@ fn build_config_with_override(
                     ),
                 });
             }
+            let roles = resolve_two_output_roles(output_names);
             (
-                Some(extract_last_dim(&output_shapes[0])?),
-                extract_last_dim(&output_shapes[1])?,
+                Some(extract_last_dim(&output_shapes[roles.embeddings])?),
+                extract_last_dim(&output_shapes[roles.predictions])?,
+                roles,
             )
         }
         ModelType::PerchV2 => {
@@ -234,6 +340,10 @@ fn build_config_with_override(
             (
                 Some(extract_last_dim(&output_shapes[0])?),
                 extract_last_dim(&output_shapes[3])?, // predictions at index 3
+                OutputRoles {
+                    predictions: 3,
+                    embeddings: 0,
+                },
             )
         }
         ModelType::BsgFinland => {
@@ -242,7 +352,14 @@ fn build_config_with_override(
                     reason: format!("BSG Finland expects 1 output, got {}", output_shapes.len()),
                 });
             }
-            (None, extract_last_dim(&output_shapes[0])?)
+            (
+                None,
+                extract_last_dim(&output_shapes[0])?,
+                OutputRoles {
+                    predictions: 0,
+                    embeddings: 0,
+                },
+            )
         }
     };
 
@@ -253,6 +370,8 @@ fn build_config_with_override(
         sample_count,
         num_species,
         embedding_dim,
+        predictions_index: roles.predictions,
+        embeddings_index: embedding_dim.map(|_| roles.embeddings),
     })
 }
 
@@ -292,12 +411,125 @@ mod tests {
     #![allow(clippy::float_cmp)]
     use super::*;
 
+    /// Output names as the session reports them.
+    fn names(values: &[&str]) -> Vec<String> {
+        values.iter().map(|v| (*v).to_string()).collect()
+    }
+
+    #[test]
+    fn test_roles_find_the_embeddings_output_in_either_position() {
+        assert_eq!(
+            resolve_two_output_roles(&names(&["predictions", "embeddings"])),
+            OutputRoles {
+                predictions: 0,
+                embeddings: 1
+            }
+        );
+        assert_eq!(
+            resolve_two_output_roles(&names(&["embeddings", "predictions"])),
+            OutputRoles {
+                predictions: 1,
+                embeddings: 0
+            }
+        );
+    }
+
+    #[test]
+    fn test_roles_accept_the_singular_embedding_spelling() {
+        // Perch spells it `embedding`. Supporting both costs nothing and
+        // avoids a fix that works for one publisher's habit only.
+        assert_eq!(
+            resolve_two_output_roles(&names(&["embedding", "label"])),
+            OutputRoles {
+                predictions: 1,
+                embeddings: 0
+            }
+        );
+    }
+
+    #[test]
+    fn test_roles_ignore_case_in_output_names() {
+        assert_eq!(
+            resolve_two_output_roles(&names(&["Output", "Embeddings"])),
+            OutputRoles {
+                predictions: 0,
+                embeddings: 1
+            }
+        );
+    }
+
+    #[test]
+    fn test_roles_fall_back_when_no_name_identifies_the_embeddings() {
+        // BirdNET v2.4's embedding export, whose second output is named
+        // `model/GLOBAL_AVG_POOL/Mean_reduced_0`. The fallback is the layout it
+        // actually has, so this keeps working.
+        let roles =
+            resolve_two_output_roles(&names(&["output", "model/GLOBAL_AVG_POOL/Mean_reduced_0"]));
+
+        assert_eq!(
+            roles,
+            OutputRoles {
+                predictions: 0,
+                embeddings: 1
+            }
+        );
+    }
+
+    #[test]
+    fn test_roles_fall_back_when_both_outputs_claim_to_be_embeddings() {
+        // Guessing between two equally plausible candidates would be worse
+        // than the documented default.
+        let roles = resolve_two_output_roles(&names(&["embeddings", "embedding"]));
+
+        assert_eq!(
+            roles,
+            OutputRoles {
+                predictions: 0,
+                embeddings: 1
+            }
+        );
+    }
+
+    #[test]
+    fn test_roles_fall_back_on_an_empty_name_list() {
+        assert_eq!(
+            resolve_two_output_roles(&[]),
+            OutputRoles {
+                predictions: 0,
+                embeddings: 1
+            }
+        );
+    }
+
+    #[test]
+    fn test_an_override_still_resolves_roles_from_names() {
+        // Passing --model v30 used to bypass name resolution and assume the
+        // layout, so an explicit override failed on exactly the models an
+        // override exists to rescue.
+        let input_shape = vec![1, 160_000];
+        let output_shapes = vec![vec![1, 422], vec![1, 1280]];
+        let names = names(&["output", "embeddings"]);
+
+        let config = detect_model_type(
+            &input_shape,
+            &output_shapes,
+            &names,
+            Some(ModelType::BirdNetV30),
+        )
+        .unwrap();
+
+        assert_eq!(config.num_species, 422);
+        assert_eq!(config.embedding_dim, Some(1280));
+        assert_eq!(config.predictions_index, 0);
+        assert_eq!(config.embeddings_index, Some(1));
+    }
+
     #[test]
     fn test_detect_birdnet_v24() {
         let input_shape = vec![1, 144_000];
         let output_shapes = vec![vec![1, 6522]];
 
-        let config = detect_model_type(&input_shape, &output_shapes, None).unwrap();
+        let config = detect_model_type(&input_shape, &output_shapes, &[], None).unwrap();
 
         assert_eq!(config.model_type, ModelType::BirdNetV24);
         assert_eq!(config.sample_rate, 48_000);
@@ -309,17 +541,71 @@ mod tests {
 
     #[test]
     fn test_detect_birdnet_v30() {
+        // The published fp32 layout: class scores first, named `predictions`.
         let input_shape = vec![1, 160_000];
-        let output_shapes = vec![vec![1, 1024], vec![1, 1000]];
+        let output_shapes = vec![vec![1, 11_560], vec![1, 1280]];
+        let names = names(&["predictions", "embeddings"]);
 
-        let config = detect_model_type(&input_shape, &output_shapes, None).unwrap();
+        let config = detect_model_type(&input_shape, &output_shapes, &names, None).unwrap();
 
         assert_eq!(config.model_type, ModelType::BirdNetV30);
         assert_eq!(config.sample_rate, 32_000);
         assert_eq!(config.segment_duration, 5.0);
         assert_eq!(config.sample_count, 160_000);
-        assert_eq!(config.num_species, 1000);
-        assert_eq!(config.embedding_dim, Some(1024));
+        assert_eq!(config.num_species, 11_560);
+        assert_eq!(config.embedding_dim, Some(1280));
+        assert_eq!(config.predictions_index, 0);
+        assert_eq!(config.embeddings_index, Some(1));
+    }
+
+    #[test]
+    fn test_detect_birdnet_v30_fp16_names_its_scores_output() {
+        // Same weights, different export: the fp16 file calls its class scores
+        // `output`, not `predictions`. Keying on the class-score name would fix
+        // one variant of a model and leave the other broken, which is why the
+        // embeddings name is what identifies the pair.
+        let input_shape = vec![1, 160_000];
+        let output_shapes = vec![vec![1, 422], vec![1, 1280]];
+        let names = names(&["output", "embeddings"]);
+
+        let config = detect_model_type(&input_shape, &output_shapes, &names, None).unwrap();
+
+        assert_eq!(config.model_type, ModelType::BirdNetV30);
+        assert_eq!(config.num_species, 422);
+        assert_eq!(config.embedding_dim, Some(1280));
+        assert_eq!(config.predictions_index, 0);
+        assert_eq!(config.embeddings_index, Some(1));
+    }
+
+    #[test]
+    fn test_detect_birdnet_v30_with_embeddings_first() {
+        // Order must not matter once the names are known. This is the layout
+        // the crate assumed for every v3.0 model, and getting it from the names
+        // rather than the position is the whole point.
+        let input_shape = vec![1, 160_000];
+        let output_shapes = vec![vec![1, 1280], vec![1, 11_560]];
+        let names = names(&["embeddings", "predictions"]);
+
+        let config = detect_model_type(&input_shape, &output_shapes, &names, None).unwrap();
+
+        assert_eq!(config.num_species, 11_560);
+        assert_eq!(config.embedding_dim, Some(1280));
+        assert_eq!(config.predictions_index, 1);
+        assert_eq!(config.embeddings_index, Some(0));
+    }
+
+    #[test]
+    fn test_detect_two_output_model_without_names_assumes_scores_first() {
+        // The documented fallback. Every published two-output model puts its
+        // class scores first, so that is what an unnamed pair is read as.
+        let input_shape = vec![1, 160_000];
+        let output_shapes = vec![vec![1, 11_560], vec![1, 1280]];
+
+        let config = detect_model_type(&input_shape, &output_shapes, &[], None).unwrap();
+
+        assert_eq!(config.num_species, 11_560);
+        assert_eq!(config.embedding_dim, Some(1280));
+        assert_eq!(config.predictions_index, 0);
     }
 
     #[test]
@@ -333,7 +619,7 @@ mod tests {
             vec![1, 14795],       // predictions
         ];
 
-        let config = detect_model_type(&input_shape, &output_shapes, None).unwrap();
+        let config = detect_model_type(&input_shape, &output_shapes, &[], None).unwrap();
 
         assert_eq!(config.model_type, ModelType::PerchV2);
         assert_eq!(config.sample_rate, 32_000);
@@ -355,7 +641,7 @@ mod tests {
         ];
 
         let config =
-            detect_model_type(&input_shape, &output_shapes, Some(ModelType::PerchV2)).unwrap();
+            detect_model_type(&input_shape, &output_shapes, &[], Some(ModelType::PerchV2)).unwrap();
 
         assert_eq!(config.model_type, ModelType::PerchV2);
         assert_eq!(config.embedding_dim, Some(512));
@@ -368,7 +654,12 @@ mod tests {
         let output_shapes = vec![vec![1, 1024], vec![1, 1000]];
 
         // `BirdNET` v2.4 expects 144,000 samples, not 160,000
-        let result = detect_model_type(&input_shape, &output_shapes, Some(ModelType::BirdNetV24));
+        let result = detect_model_type(
+            &input_shape,
+            &output_shapes,
+            &[],
+            Some(ModelType::BirdNetV24),
+        );
 
         assert!(result.is_err());
     }
@@ -378,7 +669,7 @@ mod tests {
         let input_shape = vec![1, 100_000]; // Wrong sample count
         let output_shapes = vec![vec![1, 1000]];
 
-        let result = detect_model_type(&input_shape, &output_shapes, None);
+        let result = detect_model_type(&input_shape, &output_shapes, &[], None);
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -408,8 +699,9 @@ mod tests {
         // Input shape with dynamic dimensions
         let input_shape = vec![-1, -1];
         let output_shapes = vec![vec![-1, 1280], vec![-1, 11560]];
+        let names = names(&["embeddings", "predictions"]);
 
-        let config = detect_model_type(&input_shape, &output_shapes, None).unwrap();
+        let config = detect_model_type(&input_shape, &output_shapes, &names, None).unwrap();
 
         assert_eq!(config.model_type, ModelType::BirdNetV30);
         assert_eq!(config.sample_rate, 32_000);
@@ -430,7 +722,7 @@ mod tests {
             vec![-1, 14795],       // predictions
         ];
 
-        let config = detect_model_type(&input_shape, &output_shapes, None).unwrap();
+        let config = detect_model_type(&input_shape, &output_shapes, &[], None).unwrap();
 
         assert_eq!(config.model_type, ModelType::PerchV2);
         assert_eq!(config.sample_count, 160_000);
@@ -444,7 +736,7 @@ mod tests {
         // v2.4 with embeddings: predictions at 0, embeddings at 1
         let output_shapes = vec![vec![1, 6522], vec![1, 1024]];
 
-        let config = detect_model_type(&input_shape, &output_shapes, None).unwrap();
+        let config = detect_model_type(&input_shape, &output_shapes, &[], None).unwrap();
 
         assert_eq!(config.model_type, ModelType::BirdNetV24);
         assert_eq!(config.sample_rate, 48_000);
@@ -459,7 +751,7 @@ mod tests {
         let input_shape = vec![-1, -1];
         let output_shapes = vec![vec![-1, 6522], vec![-1, 1024]];
 
-        let config = detect_model_type(&input_shape, &output_shapes, None).unwrap();
+        let config = detect_model_type(&input_shape, &output_shapes, &[], None).unwrap();
 
         assert_eq!(config.model_type, ModelType::BirdNetV24);
         assert_eq!(config.embedding_dim, Some(1024));
@@ -470,8 +762,13 @@ mod tests {
         let input_shape = vec![1, 144_000];
         let output_shapes = vec![vec![1, 6522], vec![1, 1024]];
 
-        let config =
-            detect_model_type(&input_shape, &output_shapes, Some(ModelType::BirdNetV24)).unwrap();
+        let config = detect_model_type(
+            &input_shape,
+            &output_shapes,
+            &[],
+            Some(ModelType::BirdNetV24),
+        )
+        .unwrap();
 
         assert_eq!(config.model_type, ModelType::BirdNetV24);
         assert_eq!(config.embedding_dim, Some(1024));
