@@ -125,8 +125,9 @@ fn resolve_perch_roles(output_names: &[String], output_count: usize) -> Result<O
                 "`Perch` v2 output names identify one role at index {}, which is where the \
                  default layout puts the other, and they do not say where that other one is: \
                  {output_names:?}. Name the class-score output `label` and the pooled \
-                 embedding output `embedding` to resolve this; the `--model` override does \
-                 not bypass it, because it selects the family and not the output layout.",
+                 embedding output `embedding` or `embeddings` to resolve this; the \
+                 `--model` override does not bypass it, because it selects the family and \
+                 not the output layout.",
                 roles.predictions
             ),
         });
