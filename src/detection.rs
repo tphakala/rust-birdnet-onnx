@@ -124,7 +124,9 @@ fn resolve_perch_roles(output_names: &[String], output_count: usize) -> Result<O
             reason: format!(
                 "`Perch` v2 output names identify one role at index {}, which is where the \
                  default layout puts the other, and they do not say where that other one is: \
-                 {output_names:?}",
+                 {output_names:?}. Name the class-score output `label` and the pooled \
+                 embedding output `embedding` to resolve this; the `--model` override does \
+                 not bypass it, because it selects the family and not the output layout.",
                 roles.predictions
             ),
         });
@@ -1022,6 +1024,44 @@ mod tests {
                 embeddings: 0
             }
         );
+    }
+
+    #[test]
+    fn test_detect_perch_v2_reports_an_unresolvable_layout_on_every_path() {
+        // The resolver's error has to reach the caller. Without this, silencing
+        // it at any one of the three sites leaves the whole suite green, and
+        // the wrong-tensor read it exists to prevent comes back unnoticed.
+        let unresolvable = names(&["logits", "spatial_embedding", "spectrogram", "embedding"]);
+
+        for (path, result) in [
+            (
+                "static input",
+                detect_model_type(
+                    &[1, 160_000],
+                    &perch_shapes_reordered(),
+                    &unresolvable,
+                    None,
+                ),
+            ),
+            (
+                "dynamic input",
+                detect_model_type(&[-1, -1], &perch_shapes_reordered(), &unresolvable, None),
+            ),
+            (
+                "`--model perch` override",
+                detect_model_type(
+                    &[1, 160_000],
+                    &perch_shapes_reordered(),
+                    &unresolvable,
+                    Some(ModelType::PerchV2),
+                ),
+            ),
+        ] {
+            assert!(
+                matches!(result, Err(Error::ModelDetection { .. })),
+                "{path}: expected a detection error, got {result:?}"
+            );
+        }
     }
 
     #[test]
