@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`Perch` v2 output roles are resolved by name rather than by position.** The
+  class scores were read from output index 3 and the embeddings from index 0,
+  hardcoded at all three detection sites. That is correct for every published
+  `Perch` export, but nothing verified it, so a re-export that reordered or
+  renamed its outputs would have had its embedding tensor read as class scores.
+  As with the `BirdNET` v3.0 fix, that failure produces numbers rather than an
+  error. The class-score output is now matched on `label` and the embeddings on
+  `embedding`/`embeddings`, falling back to the published 3/0 layout unless both
+  roles are named exactly once and land on different outputs.
 - **A fresh install of the crate did not compile.** The `ort` requirement was
   written as `"2.0.0-rc.11"`, which cargo reads as a caret range, so any new
   dependant resolved `ort` to the newest release candidate. rc.13 relocated the

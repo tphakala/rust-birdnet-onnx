@@ -38,25 +38,70 @@ fn resolve_two_output_roles(output_names: &[String]) -> OutputRoles {
         embeddings: 1,
     };
 
-    let embedding_positions: Vec<usize> = output_names
-        .iter()
-        .enumerate()
-        .filter(|(_, name)| {
-            let name = name.to_ascii_lowercase();
-            EMBEDDING_OUTPUT_NAMES.contains(&name.as_str())
-        })
-        .map(|(index, _)| index)
-        .collect();
-
     // Exactly one match, or the name told us nothing useful. Two outputs both
     // claiming to be embeddings is a model we do not understand, and guessing
     // between them would be worse than the documented default.
-    match embedding_positions.as_slice() {
-        [embeddings] if output_names.len() == 2 => OutputRoles {
+    match sole_position(output_names, |name| EMBEDDING_OUTPUT_NAMES.contains(&name)) {
+        Some(embeddings) if output_names.len() == 2 => OutputRoles {
             predictions: 1 - embeddings,
-            embeddings: *embeddings,
+            embeddings,
         },
         _ => FALLBACK,
+    }
+}
+
+/// Output name that identifies the class-score tensor of a `Perch` v2 model.
+///
+/// `Perch` is the one supported family whose class-score output has a stable
+/// name, so it is keyed on directly. The two-output families are keyed on
+/// their embeddings output instead, because their class scores answer to three
+/// different names and the other role then follows by elimination. With four
+/// outputs there is nothing to eliminate, so the name has to carry it.
+const PERCH_PREDICTIONS_OUTPUT_NAME: &str = "label";
+
+/// Role layout of every published `Perch` v2 export, used when the names do
+/// not identify both roles.
+const PERCH_FALLBACK: OutputRoles = OutputRoles {
+    predictions: 3,
+    embeddings: 0,
+};
+
+/// Index of the one output whose lowercased name satisfies `matches`.
+///
+/// `None` when no output matches or when several do, so a caller can treat "the
+/// names did not settle it" and "the names said nothing" the same way.
+fn sole_position(output_names: &[String], matches: impl Fn(&str) -> bool) -> Option<usize> {
+    let mut found = output_names
+        .iter()
+        .enumerate()
+        .filter(|(_, name)| matches(&name.to_ascii_lowercase()))
+        .map(|(index, _)| index);
+
+    match (found.next(), found.next()) {
+        (Some(index), None) => Some(index),
+        _ => None,
+    }
+}
+
+/// Locate the embeddings and class-score outputs of a `Perch` v2 model.
+///
+/// Falls back to the published layout unless both roles are named exactly once
+/// and land on different outputs. Half an identification is an export this
+/// crate does not understand, and filling in the missing half positionally
+/// could put both roles on the same tensor.
+///
+/// Matching is exact rather than by substring, which is what keeps `Perch`'s
+/// 4-D `spatial_embedding` from being read as the pooled embedding vector.
+fn resolve_perch_roles(output_names: &[String]) -> OutputRoles {
+    let predictions = sole_position(output_names, |name| name == PERCH_PREDICTIONS_OUTPUT_NAME);
+    let embeddings = sole_position(output_names, |name| EMBEDDING_OUTPUT_NAMES.contains(&name));
+
+    match (predictions, embeddings) {
+        (Some(predictions), Some(embeddings)) if predictions != embeddings => OutputRoles {
+            predictions,
+            embeddings,
+        },
+        _ => PERCH_FALLBACK,
     }
 }
 
@@ -155,10 +200,11 @@ fn detect_from_sample_count(
             })
         }
 
-        // `Perch` v2: 160,000 samples, 4 outputs (embedding, spatial_embedding, spectrogram, predictions)
+        // `Perch` v2: 160,000 samples, 4 outputs (embedding, spatial_embedding, spectrogram, label)
         (160_000, 4) => {
-            let embedding_dim = extract_last_dim(&output_shapes[0])?;
-            let num_species = extract_last_dim(&output_shapes[3])?; // predictions at index 3
+            let roles = resolve_perch_roles(output_names);
+            let embedding_dim = extract_last_dim(&output_shapes[roles.embeddings])?;
+            let num_species = extract_last_dim(&output_shapes[roles.predictions])?;
 
             Ok(ModelConfig {
                 model_type: ModelType::PerchV2,
@@ -167,8 +213,8 @@ fn detect_from_sample_count(
                 sample_count: 160_000,
                 num_species,
                 embedding_dim: Some(embedding_dim),
-                predictions_index: 3,
-                embeddings_index: Some(0),
+                predictions_index: roles.predictions,
+                embeddings_index: Some(roles.embeddings),
             })
         }
 
@@ -246,8 +292,9 @@ fn detect_from_outputs(
 
         // `Perch` v2: 4 outputs
         4 => {
-            let embedding_dim = extract_last_dim(&output_shapes[0])?;
-            let num_species = extract_last_dim(&output_shapes[3])?;
+            let roles = resolve_perch_roles(output_names);
+            let embedding_dim = extract_last_dim(&output_shapes[roles.embeddings])?;
+            let num_species = extract_last_dim(&output_shapes[roles.predictions])?;
 
             Ok(ModelConfig {
                 model_type: ModelType::PerchV2,
@@ -256,8 +303,8 @@ fn detect_from_outputs(
                 sample_count: 160_000,
                 num_species,
                 embedding_dim: Some(embedding_dim),
-                predictions_index: 3,
-                embeddings_index: Some(0),
+                predictions_index: roles.predictions,
+                embeddings_index: Some(roles.embeddings),
             })
         }
 
@@ -337,13 +384,11 @@ fn build_config_with_override(
                     reason: format!("`Perch` v2 expects 4 outputs, got {}", output_shapes.len()),
                 });
             }
+            let roles = resolve_perch_roles(output_names);
             (
-                Some(extract_last_dim(&output_shapes[0])?),
-                extract_last_dim(&output_shapes[3])?, // predictions at index 3
-                OutputRoles {
-                    predictions: 3,
-                    embeddings: 0,
-                },
+                Some(extract_last_dim(&output_shapes[roles.embeddings])?),
+                extract_last_dim(&output_shapes[roles.predictions])?,
+                roles,
             )
         }
         ModelType::BsgFinland => {
@@ -792,6 +837,206 @@ mod tests {
         assert_eq!(config.sample_count, 160_000);
         assert_eq!(config.num_species, 14795);
         assert_eq!(config.embedding_dim, Some(1536));
+    }
+
+    /// Output names of every published `Perch` v2 export, in their published
+    /// order. The roles happen to land on 3 and 0, which is what the crate
+    /// hardcoded.
+    fn perch_names_published() -> Vec<String> {
+        names(&["embedding", "spatial_embedding", "spectrogram", "label"])
+    }
+
+    /// The same four outputs, reordered. No published export looks like this;
+    /// it stands in for a re-export or a future revision that moves them.
+    fn perch_names_reordered() -> Vec<String> {
+        names(&["label", "spectrogram", "spatial_embedding", "embedding"])
+    }
+
+    #[test]
+    fn test_perch_roles_match_the_published_layout() {
+        assert_eq!(
+            resolve_perch_roles(&perch_names_published()),
+            OutputRoles {
+                predictions: 3,
+                embeddings: 0
+            }
+        );
+    }
+
+    #[test]
+    fn test_perch_roles_follow_a_reordered_export() {
+        assert_eq!(
+            resolve_perch_roles(&perch_names_reordered()),
+            OutputRoles {
+                predictions: 0,
+                embeddings: 3
+            }
+        );
+    }
+
+    #[test]
+    fn test_perch_roles_do_not_mistake_spatial_embedding_for_the_embeddings() {
+        // `spatial_embedding` is a 4-D tensor of per-region features, not the
+        // pooled embedding vector. Reading it as the embeddings output would
+        // report an embedding width of 1536 taken from the wrong tensor.
+        let roles = resolve_perch_roles(&names(&[
+            "spatial_embedding",
+            "embedding",
+            "spectrogram",
+            "label",
+        ]));
+
+        assert_eq!(
+            roles,
+            OutputRoles {
+                predictions: 3,
+                embeddings: 1
+            }
+        );
+    }
+
+    #[test]
+    fn test_perch_roles_fall_back_when_the_names_say_nothing() {
+        // A stripped export whose outputs carry generated names. The fallback
+        // is the layout every published model has, so this keeps working.
+        assert_eq!(
+            resolve_perch_roles(&names(&[
+                "StatefulPartitionedCall:0",
+                "StatefulPartitionedCall:1",
+                "StatefulPartitionedCall:2",
+                "StatefulPartitionedCall:3",
+            ])),
+            OutputRoles {
+                predictions: 3,
+                embeddings: 0
+            }
+        );
+    }
+
+    #[test]
+    fn test_perch_roles_fall_back_when_only_one_role_is_named() {
+        // Half a match is not an export we understand. Trusting the one name
+        // and guessing the other could put both roles on the same tensor.
+        assert_eq!(
+            resolve_perch_roles(&names(&["label", "a", "b", "c"])),
+            OutputRoles {
+                predictions: 3,
+                embeddings: 0
+            }
+        );
+    }
+
+    #[test]
+    fn test_perch_roles_fall_back_when_two_outputs_claim_the_same_role() {
+        assert_eq!(
+            resolve_perch_roles(&names(&["embedding", "embeddings", "spectrogram", "label"])),
+            OutputRoles {
+                predictions: 3,
+                embeddings: 0
+            }
+        );
+    }
+
+    #[test]
+    fn test_perch_roles_are_unavailable_without_names() {
+        // Sessions that do not report output names get the documented layout.
+        assert_eq!(
+            resolve_perch_roles(&[]),
+            OutputRoles {
+                predictions: 3,
+                embeddings: 0
+            }
+        );
+    }
+
+    /// Shapes matching [`perch_names_reordered`]. The class-score width and the
+    /// embedding width differ, so reading the wrong tensor is visible.
+    fn perch_shapes_reordered() -> Vec<Vec<i64>> {
+        vec![
+            vec![1, 14795],       // label
+            vec![1, 500, 128],    // spectrogram
+            vec![1, 16, 4, 1536], // spatial_embedding
+            vec![1, 1536],        // embedding
+        ]
+    }
+
+    #[test]
+    fn test_detect_perch_v2_reordered_outputs_by_name() {
+        let config = detect_model_type(
+            &[1, 160_000],
+            &perch_shapes_reordered(),
+            &perch_names_reordered(),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(config.model_type, ModelType::PerchV2);
+        assert_eq!(config.num_species, 14795);
+        assert_eq!(config.embedding_dim, Some(1536));
+        assert_eq!(config.predictions_index, 0);
+        assert_eq!(config.embeddings_index, Some(3));
+    }
+
+    #[test]
+    fn test_detect_perch_v2_reordered_outputs_with_dynamic_input() {
+        let output_shapes = vec![
+            vec![-1, 14795],       // label
+            vec![-1, 500, 128],    // spectrogram
+            vec![-1, 16, 4, 1536], // spatial_embedding
+            vec![-1, 1536],        // embedding
+        ];
+
+        let config =
+            detect_model_type(&[-1, -1], &output_shapes, &perch_names_reordered(), None).unwrap();
+
+        assert_eq!(config.model_type, ModelType::PerchV2);
+        assert_eq!(config.num_species, 14795);
+        assert_eq!(config.embedding_dim, Some(1536));
+        assert_eq!(config.predictions_index, 0);
+        assert_eq!(config.embeddings_index, Some(3));
+    }
+
+    #[test]
+    fn test_detect_perch_v2_reordered_outputs_with_override() {
+        // An override says which family this is. It says nothing about which
+        // output is which, so the names still decide the roles.
+        let config = detect_model_type(
+            &[1, 160_000],
+            &perch_shapes_reordered(),
+            &perch_names_reordered(),
+            Some(ModelType::PerchV2),
+        )
+        .unwrap();
+
+        assert_eq!(config.num_species, 14795);
+        assert_eq!(config.embedding_dim, Some(1536));
+        assert_eq!(config.predictions_index, 0);
+        assert_eq!(config.embeddings_index, Some(3));
+    }
+
+    #[test]
+    fn test_detect_perch_v2_published_layout_is_unchanged_by_names() {
+        // The published order must resolve exactly as it did before names were
+        // consulted, on all three paths.
+        let shapes = vec![
+            vec![1, 1536],        // embedding
+            vec![1, 16, 4, 1536], // spatial_embedding
+            vec![1, 500, 128],    // spectrogram
+            vec![1, 14795],       // label
+        ];
+        let names = perch_names_published();
+
+        for config in [
+            detect_model_type(&[1, 160_000], &shapes, &names, None).unwrap(),
+            detect_model_type(&[-1, -1], &shapes, &names, None).unwrap(),
+            detect_model_type(&[1, 160_000], &shapes, &names, Some(ModelType::PerchV2)).unwrap(),
+        ] {
+            assert_eq!(config.model_type, ModelType::PerchV2);
+            assert_eq!(config.num_species, 14795);
+            assert_eq!(config.embedding_dim, Some(1536));
+            assert_eq!(config.predictions_index, 3);
+            assert_eq!(config.embeddings_index, Some(0));
+        }
     }
 
     #[test]
