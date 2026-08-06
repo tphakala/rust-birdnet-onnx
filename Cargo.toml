@@ -22,7 +22,7 @@ load-dynamic = ["ort/load-dynamic"]  # Optional: for users who want runtime load
 # to any later rc. rc.11 does not export `IoBinding`, and rc.13 relocates the
 # `ort::ep::*` execution provider types, so both fail to compile. Only rc.12
 # builds. Widen this only after verifying the crate against the new rc.
-ort = { version = "=2.0.0-rc.12", features = ["download-binaries", "tracing", "ndarray"] }
+ort = { version = "=2.0.0-rc.13", features = ["download-binaries", "tracing", "ndarray"] }
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
