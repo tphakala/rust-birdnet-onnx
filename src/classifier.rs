@@ -1,13 +1,11 @@
 //! Classifier builder and implementation
 
+use crate::decoder::PredictionDecoder;
 use crate::detection::detect_model_type;
 use crate::error::{Error, Result};
 use crate::inference_options::InferenceOptions;
 use crate::labels::load_labels_from_file;
-use crate::postprocess::{
-    top_k_predictions, top_k_predictions_presigmoid, top_k_predictions_softmax,
-};
-use crate::types::{ExecutionProviderInfo, ModelConfig, ModelType, Prediction, PredictionResult};
+use crate::types::{ExecutionProviderInfo, ModelConfig, ModelType, PredictionResult};
 use ndarray::Array2;
 use ort::session::{RunOptions, Session};
 use ort::value::Value;
@@ -403,22 +401,14 @@ impl ClassifierBuilder {
             Labels::InMemory(labels) => labels,
         };
 
-        // Validate label count matches model
-        if labels.len() != config.num_species {
-            return Err(Error::LabelCount {
-                expected: config.num_species,
-                got: labels.len(),
-            });
-        }
+        // Validates that the label count matches the model
+        let decoder = PredictionDecoder::new(config, labels, self.top_k, self.min_confidence)?;
 
         Ok(Classifier {
             inner: Arc::new(ClassifierInner {
                 session: Mutex::new(session),
-                config,
-                labels,
+                decoder,
                 requested_provider: self.requested_provider,
-                top_k: self.top_k,
-                min_confidence: self.min_confidence,
             }),
         })
     }
@@ -483,11 +473,8 @@ enum TerminationReason {
 /// Internal state shared via Arc for thread safety
 struct ClassifierInner {
     session: Mutex<Session>,
-    config: ModelConfig,
-    labels: Vec<String>,
+    decoder: PredictionDecoder,
     requested_provider: ExecutionProviderInfo,
-    top_k: usize,
-    min_confidence: Option<f32>,
 }
 
 /// Thread-safe classifier for bird species detection
@@ -501,11 +488,11 @@ pub struct Classifier {
 impl std::fmt::Debug for Classifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Classifier")
-            .field("config", &self.inner.config)
-            .field("labels_count", &self.inner.labels.len())
+            .field("config", self.inner.decoder.config())
+            .field("labels_count", &self.inner.decoder.labels().len())
             .field("requested_provider", &self.inner.requested_provider)
-            .field("top_k", &self.inner.top_k)
-            .field("min_confidence", &self.inner.min_confidence)
+            .field("top_k", &self.inner.decoder.top_k())
+            .field("min_confidence", &self.inner.decoder.min_confidence())
             .finish_non_exhaustive()
     }
 }
@@ -520,13 +507,13 @@ impl Classifier {
     /// Get the model configuration
     #[must_use]
     pub fn config(&self) -> &ModelConfig {
-        &self.inner.config
+        self.inner.decoder.config()
     }
 
     /// Get the species labels
     #[must_use]
     pub fn labels(&self) -> &[String] {
-        &self.inner.labels
+        self.inner.decoder.labels()
     }
 
     /// Returns the execution provider that was requested for this classifier.
@@ -659,7 +646,7 @@ impl Classifier {
     #[allow(clippy::significant_drop_tightening)]
     pub fn predict(&self, segment: &[f32], options: &InferenceOptions) -> Result<PredictionResult> {
         // Validate input size
-        let expected = self.inner.config.sample_count;
+        let expected = self.inner.decoder.config().sample_count;
         if segment.len() != expected {
             return Err(Error::InputSize {
                 expected,
@@ -732,7 +719,7 @@ impl Classifier {
             return Ok(Vec::new());
         }
 
-        let expected = self.inner.config.sample_count;
+        let expected = self.inner.decoder.config().sample_count;
 
         // Validate all segments
         for (i, seg) in segments.iter().enumerate() {
@@ -836,7 +823,7 @@ impl Classifier {
 
         crate::batch_context::BatchInferenceContext::new(
             &session,
-            &self.inner.config,
+            self.inner.decoder.config(),
             max_batch_size,
         )
     }
@@ -925,221 +912,53 @@ impl Classifier {
         embeddings_flat: Option<&[f32]>,
         logits_flat: &[f32],
     ) -> Result<Vec<PredictionResult>> {
-        let model_type = self.inner.config.model_type;
-        let num_species = self.inner.config.num_species;
-        let embedding_dim = self.inner.config.embedding_dim;
-        (0..batch_size)
-            .map(|i| {
-                let logits_start = i * num_species;
-                let logits_end = logits_start + num_species;
-                let logits = &logits_flat[logits_start..logits_end];
-
-                let embeddings = embeddings_flat.and_then(|emb| {
-                    embedding_dim.map(|dim| {
-                        let emb_start = i * dim;
-                        let emb_end = emb_start + dim;
-                        emb[emb_start..emb_end].to_vec()
-                    })
-                });
-
-                let predictions = self.select_top_k(logits);
-
-                Ok(PredictionResult {
-                    model_type,
-                    predictions,
-                    embeddings,
-                    raw_scores: logits.to_vec(),
-                })
-            })
-            .collect()
+        self.inner
+            .decoder
+            .decode_batch(batch_size, logits_flat, embeddings_flat)
     }
 
     /// Process single inference outputs
     fn process_outputs(&self, outputs: &ort::session::SessionOutputs) -> Result<PredictionResult> {
-        let model_type = self.inner.config.model_type;
+        let (logits, embeddings) = self.extract_outputs(outputs)?;
 
-        // Every family reads the same two tensors, and detection already worked
-        // out which is which. Keeping a per-family index here is what let the
-        // v3.0 assumption survive in five places at once, so there is now one
-        // rule: ask the config. A model with no embeddings output simply has no
-        // embeddings index.
-        let logits = extract_tensor_data(outputs, self.inner.config.predictions_index)?;
-        let embeddings = match self.inner.config.embeddings_index {
-            Some(index) => Some(extract_tensor_data(outputs, index)?),
-            None => None,
-        };
-
-        let predictions = self.select_top_k(&logits);
-
-        Ok(PredictionResult {
-            model_type,
-            predictions,
-            embeddings,
-            raw_scores: logits,
-        })
+        self.inner
+            .decoder
+            .decode_batch(1, &logits, embeddings.as_deref())?
+            .pop()
+            .ok_or_else(|| Error::Inference("decoder returned no result for a single row".into()))
     }
 
     /// Process batch inference outputs
-    /// Class-score and embedding tensors for a batch, by resolved output index.
-    ///
-    /// One place that knows which output is which, so a family's layout is
-    /// stated once at detection rather than repeated per arm. The arms differed
-    /// on nothing else: v2.4, v3.0 and Perch all read the same two tensors and
-    /// slice them identically.
-    fn batch_tensors(
-        &self,
-        outputs: &ort::session::SessionOutputs,
-    ) -> Result<(Vec<f32>, Vec<f32>)> {
-        let embeddings_index = self.inner.config.embeddings_index.ok_or_else(|| {
-            Error::Inference("embeddings index missing for a model with embeddings".into())
-        })?;
-        let logits = extract_tensor_data(outputs, self.inner.config.predictions_index)?;
-        let embeddings = extract_tensor_data(outputs, embeddings_index)?;
-        Ok((logits, embeddings))
-    }
-
     fn process_batch_outputs(
         &self,
         outputs: &ort::session::SessionOutputs,
         batch_size: usize,
     ) -> Result<Vec<PredictionResult>> {
-        let model_type = self.inner.config.model_type;
-        let num_species = self.inner.config.num_species;
+        let (logits, embeddings) = self.extract_outputs(outputs)?;
 
-        match model_type {
-            ModelType::BirdNetV24 if self.inner.config.embedding_dim.is_some() => {
-                let embedding_dim = self.inner.config.embedding_dim.ok_or_else(|| {
-                    Error::Inference("embedding_dim missing for v2.4 model with embeddings".into())
-                })?;
-                let (logits_flat, emb_flat) = self.batch_tensors(outputs)?;
-
-                (0..batch_size)
-                    .map(|i| {
-                        let emb_start = i * embedding_dim;
-                        let emb_end = emb_start + embedding_dim;
-                        let embeddings = emb_flat[emb_start..emb_end].to_vec();
-
-                        let logits_start = i * num_species;
-                        let logits_end = logits_start + num_species;
-                        let logits = &logits_flat[logits_start..logits_end];
-
-                        let predictions = self.select_top_k(logits);
-
-                        Ok(PredictionResult {
-                            model_type,
-                            predictions,
-                            embeddings: Some(embeddings),
-                            raw_scores: logits.to_vec(),
-                        })
-                    })
-                    .collect()
-            }
-            ModelType::BirdNetV24 | ModelType::BsgFinland => {
-                let logits_flat =
-                    extract_tensor_data(outputs, self.inner.config.predictions_index)?;
-
-                (0..batch_size)
-                    .map(|i| {
-                        let start = i * num_species;
-                        let end = start + num_species;
-                        let logits = &logits_flat[start..end];
-
-                        let predictions = self.select_top_k(logits);
-
-                        Ok(PredictionResult {
-                            model_type,
-                            predictions,
-                            embeddings: None,
-                            raw_scores: logits.to_vec(),
-                        })
-                    })
-                    .collect()
-            }
-            ModelType::BirdNetV30 => {
-                let embedding_dim = self.inner.config.embedding_dim.ok_or_else(|| {
-                    Error::Inference(
-                        "embedding_dim missing for model that requires embeddings".into(),
-                    )
-                })?;
-                let (logits_flat, emb_flat) = self.batch_tensors(outputs)?;
-
-                (0..batch_size)
-                    .map(|i| {
-                        let emb_start = i * embedding_dim;
-                        let emb_end = emb_start + embedding_dim;
-                        let embeddings = emb_flat[emb_start..emb_end].to_vec();
-
-                        let logits_start = i * num_species;
-                        let logits_end = logits_start + num_species;
-                        let logits = &logits_flat[logits_start..logits_end];
-
-                        let predictions = self.select_top_k(logits);
-
-                        Ok(PredictionResult {
-                            model_type,
-                            predictions,
-                            embeddings: Some(embeddings),
-                            raw_scores: logits.to_vec(),
-                        })
-                    })
-                    .collect()
-            }
-            ModelType::PerchV2 => {
-                let embedding_dim = self.inner.config.embedding_dim.ok_or_else(|| {
-                    Error::Inference(
-                        "embedding_dim missing for model that requires embeddings".into(),
-                    )
-                })?;
-                let (logits_flat, emb_flat) = self.batch_tensors(outputs)?;
-
-                (0..batch_size)
-                    .map(|i| {
-                        let emb_start = i * embedding_dim;
-                        let emb_end = emb_start + embedding_dim;
-                        let embeddings = emb_flat[emb_start..emb_end].to_vec();
-
-                        let logits_start = i * num_species;
-                        let logits_end = logits_start + num_species;
-                        let logits = &logits_flat[logits_start..logits_end];
-
-                        let predictions = self.select_top_k(logits);
-
-                        Ok(PredictionResult {
-                            model_type,
-                            predictions,
-                            embeddings: Some(embeddings),
-                            raw_scores: logits.to_vec(),
-                        })
-                    })
-                    .collect()
-            }
-        }
+        self.inner
+            .decoder
+            .decode_batch(batch_size, &logits, embeddings.as_deref())
     }
 
-    /// Select top-K predictions, choosing the correct score transform for the model type.
-    fn select_top_k(&self, scores: &[f32]) -> Vec<Prediction> {
-        if self.inner.config.model_type.output_is_sigmoid() {
-            top_k_predictions_presigmoid(
-                scores,
-                &self.inner.labels,
-                self.inner.top_k,
-                self.inner.min_confidence,
-            )
-        } else if self.inner.config.model_type.output_needs_softmax() {
-            top_k_predictions_softmax(
-                scores,
-                &self.inner.labels,
-                self.inner.top_k,
-                self.inner.min_confidence,
-            )
-        } else {
-            top_k_predictions(
-                scores,
-                &self.inner.labels,
-                self.inner.top_k,
-                self.inner.min_confidence,
-            )
-        }
+    /// Class-score and embedding tensors of a run, by resolved output index.
+    ///
+    /// Every family reads the same two tensors, and detection already worked
+    /// out which is which. Keeping a per-family index here is what let the
+    /// v3.0 assumption survive in five places at once, so there is now one
+    /// rule: ask the config. A model with no embeddings output simply has no
+    /// embeddings index.
+    fn extract_outputs(
+        &self,
+        outputs: &ort::session::SessionOutputs,
+    ) -> Result<(Vec<f32>, Option<Vec<f32>>)> {
+        let config = self.inner.decoder.config();
+        let logits = extract_tensor_data(outputs, config.predictions_index)?;
+        let embeddings = match config.embeddings_index {
+            Some(index) => Some(extract_tensor_data(outputs, index)?),
+            None => None,
+        };
+        Ok((logits, embeddings))
     }
 }
 

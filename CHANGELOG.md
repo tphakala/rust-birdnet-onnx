@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`PredictionDecoder`, `detect_model_type` and `load_labels_from_file` are
+  public.** The code that turns raw model output into `PredictionResult`s
+  (activation per model family, top-K, confidence threshold, per-row embedding
+  slicing) lived inside `Classifier`, so an application running these models on
+  another inference engine had to copy it. `PredictionDecoder::decode_batch`
+  now exposes it over flat score and embedding buffers and returns an error,
+  rather than panicking, when a buffer has the wrong length. `Classifier`
+  decodes through the same type, so there is one implementation. Model type
+  detection and label loading, already public functions in private modules, are
+  re-exported at the crate root.
+
 ## [2.0.0-rc.16] - 2026-07-30
 
 ### Fixed
