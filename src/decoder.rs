@@ -275,8 +275,9 @@ impl PredictionDecoder {
         // a probability either, so it is ranked lowest too.
         let unusable = |score: f32| score.is_nan() || (presigmoid && score.is_infinite());
         let original = scores;
+        let unusable_count = scores.iter().filter(|&&score| unusable(score)).count();
         let cleaned: Vec<f32>;
-        let scores = if scores.iter().any(|&score| unusable(score)) {
+        let scores = if unusable_count > 0 {
             cleaned = scores
                 .iter()
                 .map(|&score| {
@@ -292,15 +293,18 @@ impl PredictionDecoder {
             scores
         };
 
+        // An unusable score ties with a genuine negative-infinity score, so ask
+        // for one extra place per unusable score: every usable class that
+        // belongs in the top K is then in the list before they are removed.
+        let wanted = self.top_k.saturating_add(unusable_count);
         let mut predictions = if presigmoid {
-            top_k_predictions_presigmoid(scores, &self.labels, self.top_k, self.min_confidence)
+            top_k_predictions_presigmoid(scores, &self.labels, wanted, self.min_confidence)
         } else if self.config.model_type.output_needs_softmax() {
-            top_k_predictions_softmax(scores, &self.labels, self.top_k, self.min_confidence)
+            top_k_predictions_softmax(scores, &self.labels, wanted, self.min_confidence)
         } else {
-            top_k_predictions(scores, &self.labels, self.top_k, self.min_confidence)
+            top_k_predictions(scores, &self.labels, wanted, self.min_confidence)
         };
-        // Leave out a class whose own score was unusable (it can still be listed
-        // when the row has fewer usable classes than `top_k`) and anything whose
+        // Leave out a class whose own score was unusable and anything whose
         // confidence is not finite (a softmax row with an infinite score).
         predictions.retain(|prediction| {
             prediction.confidence.is_finite()
@@ -308,6 +312,7 @@ impl PredictionDecoder {
                     .get(prediction.index)
                     .is_some_and(|&score| !unusable(score))
         });
+        predictions.truncate(self.top_k);
         predictions
     }
 }
@@ -547,6 +552,23 @@ mod tests {
             .decode_batch(1, &[f32::NAN, 1.0, f32::NAN], None)
             .unwrap();
         assert_predictions(&results[0], &[("Wren", 1, 0.731_058_6)]);
+
+        // A NaN ties with a genuine negative-infinity logit; the logit must win.
+        let one = PredictionDecoder::new(
+            config(ModelType::BirdNetV24, 2, None),
+            labels()[..2].to_vec(),
+            1,
+            None,
+        )
+        .unwrap();
+        let results = one
+            .decode_batch(1, &[f32::NEG_INFINITY, f32::NAN], None)
+            .unwrap();
+        assert_predictions(&results[0], &[("Robin", 0, 0.0)]);
+        let results = one
+            .decode_batch(1, &[f32::NAN, f32::NEG_INFINITY], None)
+            .unwrap();
+        assert_predictions(&results[0], &[("Wren", 1, 0.0)]);
     }
 
     #[test]
