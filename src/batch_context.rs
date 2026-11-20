@@ -416,16 +416,19 @@ impl BatchInferenceContext {
             .try_extract_tensor::<f32>()
             .map_err(|e| Error::Inference(e.to_string()))?;
 
-        // Check length before copying (data is already a slice)
-        if data.len() < expected_len {
+        // The input is bound as exactly `[batch_size, samples]`, so each output
+        // holds exactly `batch_size` rows, also when the batch is smaller than
+        // the context's maximum (checked on the CPU provider; CUDA NOT
+        // MEASURED). Any other length means the output does not match the
+        // model configuration.
+        if data.len() != expected_len {
             return Err(Error::Inference(format!(
-                "output tensor '{name}' too short: expected at least {expected_len}, got {}",
+                "output tensor '{name}' has {} values, expected {expected_len}",
                 data.len()
             )));
         }
 
-        // Copy only the needed portion (single allocation)
-        Ok(data[..expected_len].to_vec())
+        Ok(data.to_vec())
     }
 }
 
