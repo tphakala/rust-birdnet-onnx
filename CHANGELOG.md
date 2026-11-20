@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.17] - 2026-11-20
+
 ### Added
 
 - **`PredictionDecoder`, `detect_model_type` and `load_labels_from_file` are
@@ -19,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   decodes through the same type, so there is one implementation. Model type
   detection and label loading, already public functions in private modules, are
   re-exported at the crate root.
+
+### Fixed
+
+- **The IoBinding batch path rejects an output with the wrong length.** It accepted any
+  output at least as long as the batch and decoded its prefix, so a tensor that
+  did not match the model configuration was silently truncated. It now returns
+  an inference error.
 
 ### Changed
 
