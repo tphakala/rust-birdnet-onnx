@@ -148,6 +148,20 @@ fn resolve_perch_roles(output_names: &[String], output_count: usize) -> Result<O
 ///
 /// # Errors
 /// Returns [`Error::ModelDetection`] if the model structure is not recognized.
+///
+/// # Example
+///
+/// ```
+/// use birdnet_onnx::{ModelType, detect_model_type};
+///
+/// // A `BirdNET` v2.4 export: one input of 144,000 samples and one
+/// // 6,522-wide output.
+/// let config = detect_model_type(&[1, 144_000], &[vec![1, 6_522]], &[], None)?;
+/// assert_eq!(config.model_type, ModelType::BirdNetV24);
+/// assert_eq!(config.num_species, 6_522);
+/// assert_eq!(config.embedding_dim, None);
+/// # Ok::<(), birdnet_onnx::Error>(())
+/// ```
 pub fn detect_model_type(
     input_shape: &[i64],
     output_shapes: &[Vec<i64>],

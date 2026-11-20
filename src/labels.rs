@@ -19,6 +19,32 @@ struct LabelEntry {
 }
 
 /// Load labels from file using format expected by model type.
+///
+/// The model type decides how the file is read: one label per line for
+/// `BirdNET` v2.4 and BSG Finland, a CSV with a label column for `BirdNET` v3.0
+/// and `Perch` v2.
+///
+/// # Errors
+///
+/// Returns [`Error::LabelLoad`] if the file cannot be read, and
+/// [`Error::LabelParse`] if the CSV reader reports a malformed record. Rows
+/// with a missing or blank label are skipped rather than reported, and the
+/// number of labels is not checked against the model here; a mismatch surfaces
+/// as [`Error::LabelCount`] when a classifier or decoder is built.
+///
+/// # Example
+///
+/// ```
+/// use birdnet_onnx::{ModelType, load_labels_from_file};
+///
+/// let dir = tempfile::tempdir()?;
+/// let path = dir.path().join("labels.txt");
+/// std::fs::write(&path, "Robin\nWren\n")?;
+///
+/// let labels = load_labels_from_file(&path, ModelType::BirdNetV24)?;
+/// assert_eq!(labels, ["Robin", "Wren"]);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn load_labels_from_file(path: impl AsRef<Path>, model_type: ModelType) -> Result<Vec<String>> {
     let path = path.as_ref();
     let content = std::fs::read_to_string(path).map_err(|e| Error::LabelLoad {
@@ -374,7 +400,7 @@ mod tests {
     fn test_parse_json_array_empty() {
         let content = "[]";
         let labels = parse_json_labels(content).unwrap();
-        assert!(labels.is_empty());
+        assert_eq!(labels.len(), 0);
     }
 
     #[test]
@@ -418,7 +444,7 @@ mod tests {
         let content = "   \n\t\n  \n";
         let labels = parse_text_labels(content);
         // All empty/whitespace lines should be filtered out
-        assert!(labels.is_empty());
+        assert_eq!(labels.len(), 0);
     }
 
     #[test]

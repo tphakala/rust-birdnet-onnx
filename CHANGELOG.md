@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.17] - 2026-11-20
+
+### Added
+
+- **`PredictionDecoder`, `detect_model_type` and `load_labels_from_file` are
+  public.** The code that turns raw model output into `PredictionResult`s
+  (activation per model family, top-K, confidence threshold, per-row embedding
+  slicing) lived inside `Classifier`, so an application running these models on
+  another inference engine had to copy it. `PredictionDecoder::decode_batch`
+  now exposes it over flat score and embedding buffers and returns an error,
+  rather than panicking, when a buffer has the wrong length. `Classifier`
+  decodes through the same type, so there is one implementation. Model type
+  detection and label loading, already public functions in private modules, are
+  re-exported at the crate root.
+
+### Changed
+
+- **`chrono` is no longer a dependency.** It formatted one log timestamp in the
+  `birdnet-analyze` example binary and carried an unmaintained-crate advisory
+  (RUSTSEC-2026-0543). The binary now formats the UTC timestamp with the
+  standard library, including times before 1970; the library API is unchanged.
+- **Lockfile updates clear two advisories:** `webpki-root-certs` 1.0.12
+  (RUSTSEC-2026-0383, distrusted emSign intermediates) and `rustix` 1.1.6
+  (RUSTSEC-2026-0486). Both are only reachable through `ort-sys`'s build script
+  and the test tooling, so they do not affect the published crate's users.
+
+### Fixed
+
+- **The IoBinding batch path rejects an output with the wrong length.** It
+  accepted any output at least as long as the batch and decoded its prefix, so
+  a tensor that did not match the model configuration was silently truncated.
+  It now returns an inference error, the same as the other batch paths.
+- **A NaN score no longer produces NaN predictions.** In `PredictionDecoder`
+  and so in `Classifier`, a single NaN score in a Perch v2 row made every
+  softmax probability NaN, and for the other models a NaN took a top-K slot.
+  A NaN score (and an infinite one for BSG Finland, whose output is already a
+  probability) now ranks as the lowest possible score and is never listed as a
+  prediction, nor is any prediction whose confidence is not finite. `raw_scores` still holds the row
+  as the model returned it. `CustomClassifier` is unchanged.
+
 ## [2.0.0-rc.16] - 2026-07-30
 
 ### Fixed

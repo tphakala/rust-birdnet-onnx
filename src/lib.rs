@@ -80,6 +80,7 @@ mod bsg;
 mod classifier;
 pub mod cuda_config;
 mod custom_classifier;
+mod decoder;
 mod detection;
 mod error;
 pub mod execution_providers;
@@ -100,9 +101,12 @@ pub use bsg::{BsgPostProcessor, BsgPostProcessorBuilder};
 pub use classifier::{Classifier, ClassifierBuilder};
 pub use cuda_config::{ArenaExtendStrategy, CUDAConfig};
 pub use custom_classifier::{CustomClassifier, CustomClassifierBuilder};
+pub use decoder::PredictionDecoder;
+pub use detection::detect_model_type;
 pub use error::{Error, Result};
 pub use execution_providers::available_execution_providers;
 pub use inference_options::{CancellationToken, InferenceOptions};
+pub use labels::load_labels_from_file;
 pub use rangefilter::{
     RangeFilter, RangeFilterBuilder, calculate_week, validate_coordinates, validate_date,
 };

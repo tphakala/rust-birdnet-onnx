@@ -111,7 +111,7 @@ fn test_birdnet_v24_predict() -> Result<()> {
     assert_eq!(result.model_type, ModelType::BirdNetV24);
     assert!(result.predictions.len() <= 10);
     assert!(result.embeddings.is_none());
-    assert!(!result.raw_scores.is_empty());
+    assert_ne!(result.raw_scores.len(), 0);
 
     // Predictions should be sorted by confidence
     for window in result.predictions.windows(2) {
