@@ -530,18 +530,22 @@ mod tests {
 
     #[test]
     fn new_rejects_a_label_count_that_differs_from_the_model() {
-        let two_labels = vec!["Robin".to_string(), "Wren".to_string()];
+        // (label count, expected message) for a model with three species
+        let cases = [
+            (2, "label count mismatch: model expects 3, got 2"),
+            (4, "label count mismatch: model expects 3, got 4"),
+        ];
 
-        let err =
-            PredictionDecoder::new(config(ModelType::BirdNetV24, 3, None), two_labels, 1, None)
-                .unwrap_err();
+        for (label_count, message) in cases {
+            let labels = vec!["Robin".to_string(); label_count];
 
-        assert!(matches!(
-            err,
-            Error::LabelCount {
-                expected: 3,
-                got: 2
-            }
-        ));
+            let result =
+                PredictionDecoder::new(config(ModelType::BirdNetV24, 3, None), labels, 1, None);
+
+            assert_eq!(
+                result.err().map(|e| e.to_string()),
+                Some(message.to_string())
+            );
+        }
     }
 }
