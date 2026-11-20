@@ -897,9 +897,65 @@ fn format_duration(secs: f32) -> String {
     }
 }
 
-/// Get current timestamp in ISO 8601 format with milliseconds.
+/// Get the current UTC time in ISO 8601 format with microseconds.
 fn timestamp() -> String {
-    let now = std::time::SystemTime::now();
-    let datetime: chrono::DateTime<chrono::Utc> = now.into();
-    datetime.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()
+    let since_epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    format_utc_timestamp(since_epoch)
+}
+
+/// Format a time since the Unix epoch as `YYYY-MM-DDTHH:MM:SS.ffffffZ` (UTC).
+fn format_utc_timestamp(since_epoch: std::time::Duration) -> String {
+    const SECS_PER_DAY: u64 = 86_400;
+    let secs = since_epoch.as_secs();
+    let (year, month, day) = civil_from_days(secs / SECS_PER_DAY);
+    let secs_of_day = secs % SECS_PER_DAY;
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:06}Z",
+        secs_of_day / 3600,
+        (secs_of_day % 3600) / 60,
+        secs_of_day % 60,
+        since_epoch.subsec_micros()
+    )
+}
+
+/// Convert days since 1970-01-01 to a proleptic Gregorian (year, month, day).
+///
+/// Howard Hinnant's `civil_from_days` algorithm, restricted to dates on or
+/// after the epoch.
+const fn civil_from_days(days: u64) -> (u64, u64, u64) {
+    let z = days + 719_468;
+    let era = z / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + if month <= 2 { 1 } else { 0 };
+    (year, month, day)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_utc_timestamp;
+    use std::time::Duration;
+
+    #[test]
+    fn test_format_utc_timestamp_matches_reference_dates() {
+        // Expected strings computed independently with Python's datetime.
+        let cases = [
+            (0, 0, "1970-01-01T00:00:00.000000Z"),
+            (951_782_400, 0, "2000-02-29T00:00:00.000000Z"),
+            (4_107_542_400, 0, "2100-03-01T00:00:00.000000Z"),
+            (95_039_999, 999_999, "1973-01-04T23:59:59.999999Z"),
+            (1_795_696_496, 123_456, "2026-11-26T12:34:56.123456Z"),
+            (13_574_563_200, 0, "2400-02-29T00:00:00.000000Z"),
+        ];
+        for (secs, micros, expected) in cases {
+            let since_epoch = Duration::from_secs(secs) + Duration::from_micros(micros);
+            assert_eq!(format_utc_timestamp(since_epoch), expected, "secs={secs}");
+        }
+    }
 }

@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   detection and label loading, already public functions in private modules, are
   re-exported at the crate root.
 
+### Changed
+
+- **`chrono` is no longer a dependency.** It formatted one log timestamp in the
+  `birdnet-analyze` example binary and carried an unmaintained-crate advisory
+  (RUSTSEC-2026-0543). The binary now formats the UTC timestamp with the
+  standard library; the library API is unchanged.
+- **Lockfile updates clear two advisories:** `webpki-root-certs` 1.0.12
+  (RUSTSEC-2026-0383, distrusted emSign intermediates) and `rustix` 1.1.6
+  (RUSTSEC-2026-0486). Both are only reachable through `ort-sys`'s build script
+  and the test tooling, so they do not affect the published crate's users.
+
 ## [2.0.0-rc.16] - 2026-07-30
 
 ### Fixed
