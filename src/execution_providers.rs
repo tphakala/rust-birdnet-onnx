@@ -28,7 +28,7 @@ use ort::ep::{
 /// use birdnet_onnx::available_execution_providers;
 ///
 /// let providers = available_execution_providers();
-/// assert!(!providers.is_empty());
+/// assert_ne!(providers.len(), 0);
 /// println!("Available providers: {:?}", providers);
 /// ```
 #[must_use]
@@ -105,7 +105,7 @@ mod tests {
         // This test verifies the function completes without panicking
         let providers = available_execution_providers();
         // The actual list depends on compile-time configuration
-        assert!(!providers.is_empty());
+        assert_ne!(providers.len(), 0);
     }
 
     #[test]

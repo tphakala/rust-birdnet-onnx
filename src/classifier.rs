@@ -1152,7 +1152,7 @@ mod tests {
     fn test_empty_batch_handling() {
         // Verify that empty batch returns empty result
         let segments: Vec<&[f32]> = vec![];
-        assert!(segments.is_empty());
+        assert_eq!(segments.len(), 0);
         // The actual predict_batch method returns Ok(Vec::new()) for empty input
     }
 

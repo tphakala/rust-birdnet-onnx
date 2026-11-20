@@ -209,7 +209,7 @@ fn normal_cdf(x: f64) -> f64 {
     // 1 / sqrt(2π) ≈ 0.398_942_280_401_432_7
     let frac_1_sqrt_2pi: f64 = (2.0 * std::f64::consts::PI).sqrt().recip();
     let pdf = (-0.5 * abs_x * abs_x).exp() * frac_1_sqrt_2pi;
-    let cdf = 1.0 - pdf * poly;
+    let cdf = pdf.mul_add(-poly, 1.0);
 
     if x >= 0.0 { cdf } else { 1.0 - cdf }
 }
@@ -301,8 +301,10 @@ impl DistributionMaps {
 
         // Convert bytes to f32 vec
         let data: Vec<f32> = data_bytes
-            .chunks_exact(4)
-            .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|chunk| f32::from_le_bytes(*chunk))
             .collect();
 
         Ok(Self {
@@ -431,8 +433,8 @@ impl SdmData {
 
         let adj = (presence.log10() + 1.0).clamp(-10.0, 0.0);
         let score_f64 = f64::from(score);
-        let numerator = (score_f64 + adj * 0.25).max(0.0);
-        let denominator = (1.0 + adj * 0.25).max(0.0001);
+        let numerator = adj.mul_add(0.25, score_f64).max(0.0);
+        let denominator = adj.mul_add(0.25, 1.0).max(0.0001);
 
         #[allow(clippy::cast_possible_truncation)]
         let result = (numerator / denominator) as f32;

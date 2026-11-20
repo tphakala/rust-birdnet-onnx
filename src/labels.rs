@@ -398,7 +398,7 @@ mod tests {
     fn test_parse_json_array_empty() {
         let content = "[]";
         let labels = parse_json_labels(content).unwrap();
-        assert!(labels.is_empty());
+        assert_eq!(labels.len(), 0);
     }
 
     #[test]
@@ -442,7 +442,7 @@ mod tests {
         let content = "   \n\t\n  \n";
         let labels = parse_text_labels(content);
         // All empty/whitespace lines should be filtered out
-        assert!(labels.is_empty());
+        assert_eq!(labels.len(), 0);
     }
 
     #[test]
