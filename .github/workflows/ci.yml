@@ -59,8 +59,15 @@ jobs:
         with:
           lfs: true
 
+      # Windows stays on Rust 1.99.1: Cargo 1.100 moved build script output
+      # one directory deeper (target/<profile>/build/<crate>/<hash>/out), and
+      # ort-sys 2.0.0-rc.12 finds the folder it copies onnxruntime's DLLs into
+      # by counting parent directories of OUT_DIR, so on Windows the copy
+      # fails before the crate compiles. Remove the pin with the next ort bump.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.os == 'windows-latest' && '1.99.1' || 'stable' }}
 
       - name: Cache cargo
         uses: actions/cache@v6

@@ -118,9 +118,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Windows builds with Rust 1.99.1 for the reason given in ci.yml (ort-sys
+      # 2.0.0-rc.12 and Cargo 1.100's build directory layout).
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ matrix.os == 'windows-latest' && '1.99.1' || 'stable' }}
           targets: ${{ matrix.target }}
 
       - name: Build release binary
@@ -178,7 +181,7 @@ jobs:
           if [ -z "$PREV_TAG" ]; then
             echo "Initial release" >> RELEASE_NOTES.md
           else
-            git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges >> RELEASE_NOTES.md 2>/dev/null || echo "- No commit messages available" >> RELEASE_NOTES.md
+            git log "${PREV_TAG}..HEAD" --pretty=format:"- %s" --no-merges >> RELEASE_NOTES.md 2>/dev/null || echo "- No commit messages available" >> RELEASE_NOTES.md
           fi
 
       - name: Create Release
