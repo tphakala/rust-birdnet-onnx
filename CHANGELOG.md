@@ -22,23 +22,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   detection and label loading, already public functions in private modules, are
   re-exported at the crate root.
 
-### Fixed
-
-- **The IoBinding batch path rejects an output with the wrong length.** It accepted any
-  output at least as long as the batch and decoded its prefix, so a tensor that
-  did not match the model configuration was silently truncated. It now returns
-  an inference error.
-
 ### Changed
 
 - **`chrono` is no longer a dependency.** It formatted one log timestamp in the
   `birdnet-analyze` example binary and carried an unmaintained-crate advisory
   (RUSTSEC-2026-0543). The binary now formats the UTC timestamp with the
-  standard library; the library API is unchanged.
+  standard library, including times before 1970; the library API is unchanged.
 - **Lockfile updates clear two advisories:** `webpki-root-certs` 1.0.12
   (RUSTSEC-2026-0383, distrusted emSign intermediates) and `rustix` 1.1.6
   (RUSTSEC-2026-0486). Both are only reachable through `ort-sys`'s build script
   and the test tooling, so they do not affect the published crate's users.
+
+### Fixed
+
+- **The IoBinding batch path rejects an output with the wrong length.** It
+  accepted any output at least as long as the batch and decoded its prefix, so
+  a tensor that did not match the model configuration was silently truncated.
+  It now returns an inference error, the same as the other batch paths.
+- **A NaN score no longer produces NaN predictions.** In `PredictionDecoder`
+  and so in `Classifier`, a single NaN score in a Perch v2 row made every
+  softmax probability NaN, and for the other models a NaN took a top-K slot.
+  A NaN score (and an infinite one for BSG Finland, whose output is already a
+  probability) now ranks as the lowest possible score and is never listed as a
+  prediction, nor is any prediction whose confidence is not finite. `raw_scores` still holds the row
+  as the model returned it. `CustomClassifier` is unchanged.
 
 ## [2.0.0-rc.16] - 2026-07-30
 

@@ -27,8 +27,10 @@ struct LabelEntry {
 /// # Errors
 ///
 /// Returns [`Error::LabelLoad`] if the file cannot be read, and
-/// [`Error::LabelParse`] if its content is not valid for the format the model
-/// type expects.
+/// [`Error::LabelParse`] if the CSV reader reports a malformed record. Rows
+/// with a missing or blank label are skipped rather than reported, and the
+/// number of labels is not checked against the model here; a mismatch surfaces
+/// as [`Error::LabelCount`] when a classifier or decoder is built.
 ///
 /// # Example
 ///

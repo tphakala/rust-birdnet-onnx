@@ -899,34 +899,55 @@ fn format_duration(secs: f32) -> String {
 
 /// Get the current UTC time in ISO 8601 format with microseconds.
 fn timestamp() -> String {
-    let since_epoch = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    format_utc_timestamp(since_epoch)
+    let (secs, micros) = seconds_since_epoch(std::time::SystemTime::now());
+    format_utc_timestamp(secs, micros)
 }
 
-/// Format a time since the Unix epoch as `YYYY-MM-DDTHH:MM:SS.ffffffZ` (UTC).
-fn format_utc_timestamp(since_epoch: std::time::Duration) -> String {
-    const SECS_PER_DAY: u64 = 86_400;
-    let secs = since_epoch.as_secs();
-    let (year, month, day) = civil_from_days(secs / SECS_PER_DAY);
-    let secs_of_day = secs % SECS_PER_DAY;
+/// Split a time into whole seconds since the Unix epoch (negative before 1970)
+/// and the microseconds within that second.
+fn seconds_since_epoch(time: std::time::SystemTime) -> (i64, u32) {
+    const NANOS_PER_SEC: u32 = 1_000_000_000;
+    const NANOS_PER_MICRO: u32 = 1_000;
+    match time.duration_since(std::time::UNIX_EPOCH) {
+        Ok(after) => (
+            i64::try_from(after.as_secs()).unwrap_or(i64::MAX),
+            after.subsec_micros(),
+        ),
+        Err(before) => {
+            // Borrow from the nanoseconds, not the truncated microseconds, so
+            // the microsecond part rounds down like it does after the epoch.
+            let before = before.duration();
+            let secs = i64::try_from(before.as_secs()).map_or(i64::MIN, |s| -s);
+            match before.subsec_nanos() {
+                0 => (secs, 0),
+                nanos => (
+                    secs.saturating_sub(1),
+                    (NANOS_PER_SEC - nanos) / NANOS_PER_MICRO,
+                ),
+            }
+        }
+    }
+}
+
+/// Format seconds since the Unix epoch (negative before 1970) and the
+/// microseconds within that second as `YYYY-MM-DDTHH:MM:SS.ffffffZ` (UTC).
+fn format_utc_timestamp(secs: i64, micros: u32) -> String {
+    const SECS_PER_DAY: i64 = 86_400;
+    let (year, month, day) = civil_from_days(secs.div_euclid(SECS_PER_DAY));
+    let secs_of_day = secs.rem_euclid(SECS_PER_DAY);
     format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:06}Z",
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{micros:06}Z",
         secs_of_day / 3600,
         (secs_of_day % 3600) / 60,
-        secs_of_day % 60,
-        since_epoch.subsec_micros()
+        secs_of_day % 60
     )
 }
 
-/// Convert days since 1970-01-01 to a proleptic Gregorian (year, month, day).
-///
-/// Howard Hinnant's `civil_from_days` algorithm, restricted to dates on or
-/// after the epoch.
-const fn civil_from_days(days: u64) -> (u64, u64, u64) {
+/// Convert days since 1970-01-01 (negative before it) to a proleptic
+/// Gregorian (year, month, day), using Howard Hinnant's `civil_from_days`.
+const fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let z = days + 719_468;
-    let era = z / 146_097;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
     let doe = z - era * 146_097;
     let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
@@ -939,8 +960,8 @@ const fn civil_from_days(days: u64) -> (u64, u64, u64) {
 
 #[cfg(test)]
 mod tests {
-    use super::format_utc_timestamp;
-    use std::time::Duration;
+    use super::{format_utc_timestamp, seconds_since_epoch};
+    use std::time::{Duration, UNIX_EPOCH};
 
     #[test]
     fn test_format_utc_timestamp_matches_reference_dates() {
@@ -952,10 +973,40 @@ mod tests {
             (95_039_999, 999_999, "1973-01-04T23:59:59.999999Z"),
             (1_795_696_496, 123_456, "2026-11-26T12:34:56.123456Z"),
             (13_574_563_200, 0, "2400-02-29T00:00:00.000000Z"),
+            (-1, 500_000, "1969-12-31T23:59:59.500000Z"),
+            (-1, 0, "1969-12-31T23:59:59.000000Z"),
+            (-31_536_000, 0, "1969-01-01T00:00:00.000000Z"),
+            (-2_208_988_800, 0, "1900-01-01T00:00:00.000000Z"),
         ];
         for (secs, micros, expected) in cases {
-            let since_epoch = Duration::from_secs(secs) + Duration::from_micros(micros);
-            assert_eq!(format_utc_timestamp(since_epoch), expected, "secs={secs}");
+            assert_eq!(format_utc_timestamp(secs, micros), expected, "secs={secs}");
         }
+    }
+
+    #[test]
+    fn test_seconds_since_epoch_counts_back_before_1970() {
+        assert_eq!(seconds_since_epoch(UNIX_EPOCH), (0, 0));
+        assert_eq!(
+            seconds_since_epoch(UNIX_EPOCH + Duration::from_millis(1_500)),
+            (1, 500_000)
+        );
+        assert_eq!(
+            seconds_since_epoch(UNIX_EPOCH - Duration::from_millis(500)),
+            (-1, 500_000)
+        );
+        assert_eq!(
+            seconds_since_epoch(UNIX_EPOCH - Duration::from_secs(2)),
+            (-2, 0)
+        );
+        // Sub-microsecond parts round down: 1.0000015 s before the epoch is
+        // -2 s plus 0.9999985 s, which shows as 999998 microseconds.
+        assert_eq!(
+            seconds_since_epoch(UNIX_EPOCH - Duration::new(1, 1_500)),
+            (-2, 999_998)
+        );
+        assert_eq!(
+            seconds_since_epoch(UNIX_EPOCH - Duration::from_nanos(500)),
+            (-1, 999_999)
+        );
     }
 }

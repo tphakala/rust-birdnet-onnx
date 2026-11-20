@@ -178,7 +178,12 @@ impl PredictionDecoder {
     ///   `embeddings: None` in every result.
     ///
     /// # Returns
-    /// One [`PredictionResult`] per batch row, in row order.
+    /// One [`PredictionResult`] per batch row, in row order. A NaN score (and, for
+    /// models whose output is already a probability, an infinite one) ranks as
+    /// the lowest possible score, so it never displaces a usable class and does
+    /// not turn a softmax row into NaN. Such a class, and any prediction whose
+    /// confidence is not finite, is never listed in `predictions`. `raw_scores`
+    /// always holds the row as the model returned it.
     ///
     /// # Errors
     ///
@@ -237,33 +242,73 @@ impl PredictionDecoder {
             (None, _) => None,
         };
 
-        Ok((0..batch_size)
-            .map(|row| {
-                let row_scores = &scores[row * num_species..(row + 1) * num_species];
-                let row_embeddings = embeddings.zip(embedding_dim).map(|(emb, dim)| {
-                    // In range: `check_len` established emb.len() == batch_size * dim.
-                    emb[row * dim..(row + 1) * dim].to_vec()
-                });
+        let mut results = Vec::new();
+        results.try_reserve_exact(batch_size).map_err(|_| {
+            Error::Inference(format!(
+                "cannot allocate results for batch size {batch_size}"
+            ))
+        })?;
+        for row in 0..batch_size {
+            let row_scores = &scores[row * num_species..(row + 1) * num_species];
+            let row_embeddings = embeddings.zip(embedding_dim).map(|(emb, dim)| {
+                // In range: `check_len` established emb.len() == batch_size * dim.
+                emb[row * dim..(row + 1) * dim].to_vec()
+            });
 
-                PredictionResult {
-                    model_type: self.config.model_type,
-                    predictions: self.select_top_k(row_scores),
-                    embeddings: row_embeddings,
-                    raw_scores: row_scores.to_vec(),
-                }
-            })
-            .collect())
+            results.push(PredictionResult {
+                model_type: self.config.model_type,
+                predictions: self.select_top_k(row_scores),
+                embeddings: row_embeddings,
+                raw_scores: row_scores.to_vec(),
+            });
+        }
+        Ok(results)
     }
 
     /// Select top-K predictions, choosing the correct score transform for the model type.
     fn select_top_k(&self, scores: &[f32]) -> Vec<Prediction> {
-        if self.config.model_type.output_is_sigmoid() {
+        let presigmoid = self.config.model_type.output_is_sigmoid();
+        // Ranking uses `total_cmp`, which puts NaN above every number, so a NaN
+        // score would take a top-K slot, and one NaN in a softmax row turns
+        // every probability into NaN. Rank such a score as the lowest possible
+        // value instead. For already-sigmoided output an infinite value is not
+        // a probability either, so it is ranked lowest too.
+        let unusable = |score: f32| score.is_nan() || (presigmoid && score.is_infinite());
+        let original = scores;
+        let cleaned: Vec<f32>;
+        let scores = if scores.iter().any(|&score| unusable(score)) {
+            cleaned = scores
+                .iter()
+                .map(|&score| {
+                    if unusable(score) {
+                        f32::NEG_INFINITY
+                    } else {
+                        score
+                    }
+                })
+                .collect();
+            &cleaned[..]
+        } else {
+            scores
+        };
+
+        let mut predictions = if presigmoid {
             top_k_predictions_presigmoid(scores, &self.labels, self.top_k, self.min_confidence)
         } else if self.config.model_type.output_needs_softmax() {
             top_k_predictions_softmax(scores, &self.labels, self.top_k, self.min_confidence)
         } else {
             top_k_predictions(scores, &self.labels, self.top_k, self.min_confidence)
-        }
+        };
+        // Leave out a class whose own score was unusable (it can still be listed
+        // when the row has fewer usable classes than `top_k`) and anything whose
+        // confidence is not finite (a softmax row with an infinite score).
+        predictions.retain(|prediction| {
+            prediction.confidence.is_finite()
+                && original
+                    .get(prediction.index)
+                    .is_some_and(|&score| !unusable(score))
+        });
+        predictions
     }
 }
 
@@ -446,6 +491,83 @@ mod tests {
         assert!(results.iter().all(|r| r.embeddings.is_none()));
     }
 
+    /// Compare only the predictions; `raw_scores` may hold NaN, which never equals itself.
+    fn assert_predictions(actual: &PredictionResult, want: &[Expected]) {
+        let got: Vec<(&str, usize)> = actual
+            .predictions
+            .iter()
+            .map(|p| (p.species.as_str(), p.index))
+            .collect();
+        let expected: Vec<(&str, usize)> = want.iter().map(|&(s, i, _)| (s, i)).collect();
+        assert_eq!(got, expected);
+        for (p, &(_, _, confidence)) in actual.predictions.iter().zip(want) {
+            assert!(
+                (p.confidence - confidence).abs() < TOLERANCE,
+                "{}: confidence {} != {confidence}",
+                p.species,
+                p.confidence
+            );
+        }
+    }
+
+    #[test]
+    fn decode_batch_ranks_a_nan_score_below_every_usable_class() {
+        // Softmax: one NaN would make every probability NaN; the other class
+        // keeps its probability instead.
+        let perch = PredictionDecoder::new(
+            config(ModelType::PerchV2, 2, None),
+            labels()[..2].to_vec(),
+            1,
+            None,
+        )
+        .unwrap();
+        let results = perch.decode_batch(1, &[0.0, f32::NAN], None).unwrap();
+        assert_predictions(&results[0], &[("Robin", 0, 1.0)]);
+        assert!(results[0].raw_scores[1].is_nan());
+
+        // Sigmoid: the NaN must not take one of the two slots.
+        let v24 = PredictionDecoder::new(config(ModelType::BirdNetV24, 3, None), labels(), 2, None)
+            .unwrap();
+        let results = v24.decode_batch(1, &[f32::NAN, 1.0, 2.0], None).unwrap();
+        assert_predictions(
+            &results[0],
+            &[("Owl", 2, 0.880_797_1), ("Wren", 1, 0.731_058_6)],
+        );
+
+        // Already-sigmoided output: an infinite value is not a probability.
+        let bsg = PredictionDecoder::new(config(ModelType::BsgFinland, 3, None), labels(), 2, None)
+            .unwrap();
+        let results = bsg
+            .decode_batch(1, &[f32::INFINITY, 0.25, 0.5], None)
+            .unwrap();
+        assert_predictions(&results[0], &[("Owl", 2, 0.5), ("Wren", 1, 0.25)]);
+
+        // Fewer usable classes than top_k: the unusable one is left out.
+        let results = v24
+            .decode_batch(1, &[f32::NAN, 1.0, f32::NAN], None)
+            .unwrap();
+        assert_predictions(&results[0], &[("Wren", 1, 0.731_058_6)]);
+    }
+
+    #[test]
+    fn decode_batch_reports_a_result_vector_that_cannot_be_allocated() {
+        // A zero-width model accepts an empty scores buffer for any batch size,
+        // so only the result allocation can fail.
+        let decoder =
+            PredictionDecoder::new(config(ModelType::BirdNetV24, 0, None), Vec::new(), 1, None)
+                .unwrap();
+
+        let error = decoder.decode_batch(usize::MAX, &[], None).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "inference failed: cannot allocate results for batch size {}",
+                usize::MAX
+            )
+        );
+    }
+
     #[test]
     fn decode_batch_of_zero_rows_is_empty() {
         let decoder =
@@ -457,6 +579,11 @@ mod tests {
 
     #[test]
     fn decode_batch_rejects_buffers_of_the_wrong_length() {
+        // `usize::MAX` differs between 32-bit and 64-bit targets.
+        let overflow_message = format!(
+            "inference failed: scores length overflows: batch size {} x width 3",
+            usize::MAX
+        );
         // (batch size, scores length, embeddings length, expected message)
         let cases: [(usize, usize, Option<usize>, &str); 6] = [
             (
@@ -483,12 +610,7 @@ mod tests {
                 Some(5),
                 "inference failed: embeddings length mismatch: expected 4 values (batch size 2 x width 2), got 5",
             ),
-            (
-                usize::MAX,
-                6,
-                None,
-                "inference failed: scores length overflows: batch size 18446744073709551615 x width 3",
-            ),
+            (usize::MAX, 6, None, overflow_message.as_str()),
             (
                 2,
                 6,
