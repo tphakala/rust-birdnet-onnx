@@ -73,7 +73,7 @@ pub fn top_k_predictions_softmax(
 
 /// Select top-K predictions from pre-sigmoided scores (already in `[0, 1]`).
 ///
-/// Used for models like BSG Finland where sigmoid is baked into the ONNX graph.
+/// Used for `BirdNET` v3.0 and BSG Finland, whose ONNX graphs apply the sigmoid.
 /// Same algorithm as [`top_k_predictions`] but skips the sigmoid transformation.
 pub fn top_k_predictions_presigmoid(
     scores: &[f32],

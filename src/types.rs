@@ -4,6 +4,7 @@ pub enum ModelType {
     /// `BirdNET` v2.4 - 48kHz, 3s segments, optional embeddings (when model has 2 outputs).
     BirdNetV24,
     /// `BirdNET` v3.0 - 32kHz, 5s segments, 1280-dim embeddings.
+    /// Class scores are pre-sigmoided in the ONNX graph (no post-sigmoid needed).
     BirdNetV30,
     /// Google `Perch` v2 - 32kHz, 5s segments, variable embeddings.
     PerchV2,
@@ -52,7 +53,7 @@ impl ModelType {
     /// Whether model output is already sigmoided (no post-sigmoid needed).
     #[must_use]
     pub const fn output_is_sigmoid(&self) -> bool {
-        matches!(self, Self::BsgFinland)
+        matches!(self, Self::BirdNetV30 | Self::BsgFinland)
     }
 
     /// Whether this model was trained with softmax cross-entropy and needs
@@ -116,7 +117,7 @@ pub struct ModelConfig {
 pub struct Prediction {
     /// Species name from labels.
     pub species: String,
-    /// Confidence score (0.0 - 1.0, after sigmoid).
+    /// Confidence score (0.0 - 1.0, after the model family's activation).
     pub confidence: f32,
     /// Index in model output.
     pub index: usize,

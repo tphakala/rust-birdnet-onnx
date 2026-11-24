@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`BirdNET` v3.0 scores went through sigmoid twice.** The v3.0 ONNX exports
+  apply the per-class sigmoid inside the graph, so their class scores are
+  already probabilities, but `PredictionDecoder` (and so `Classifier`) applied
+  sigmoid again. Every confidence landed between 0.5 and 0.731: a score near 0
+  became 0.5 and a certain detection became 0.731. Confidences for
+  `ModelType::BirdNetV30` are now the model's own scores, so thresholds tuned
+  against the old band need retuning. As for BSG Finland, an infinite v3.0
+  score is now unusable and never listed, where it used to map to 1.0.
+  ([#109](https://github.com/tphakala/rust-birdnet-onnx/issues/109))
+
 ## [2.0.0-rc.17] - 2026-11-20
 
 ### Added
