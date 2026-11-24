@@ -7,9 +7,7 @@
 //! runs the same models share one implementation.
 
 use crate::error::{Error, Result};
-use crate::postprocess::{
-    top_k_predictions, top_k_predictions_presigmoid, top_k_predictions_softmax,
-};
+use crate::postprocess::{Activation, top_k_usable};
 use crate::types::{ModelConfig, Prediction, PredictionResult};
 
 /// Turns flat output buffers from a model run into [`PredictionResult`]s.
@@ -399,61 +397,25 @@ impl PredictionDecoder {
         Ok(results)
     }
 
-    /// Select top-K predictions, choosing the correct score transform for the model type.
+    /// Select top-K predictions with the activation the model family needs.
     fn select_top_k(&self, scores: &[f32]) -> Vec<Prediction> {
-        let presigmoid = self.config.model_type.output_is_sigmoid();
-        // Ranking uses `total_cmp`, which puts NaN above every number, so a NaN
-        // score would take a top-K slot, and one NaN in a softmax row turns
-        // every probability into NaN. Rank such a score as the lowest possible
-        // value instead. For already-sigmoided output an infinite value is not
-        // a probability either, so it is ranked lowest too.
-        let unusable = |score: f32| score.is_nan() || (presigmoid && score.is_infinite());
-        let original = scores;
-        let unusable_count = scores.iter().filter(|&&score| unusable(score)).count();
-        let cleaned: Vec<f32>;
-        let scores = if unusable_count > 0 {
-            cleaned = scores
-                .iter()
-                .map(|&score| {
-                    if unusable(score) {
-                        f32::NEG_INFINITY
-                    } else {
-                        score
-                    }
-                })
-                .collect();
-            &cleaned[..]
+        let model_type = self.config.model_type;
+        let activation = if model_type.output_is_sigmoid() {
+            Activation::Presigmoid
+        } else if model_type.output_needs_softmax() {
+            Activation::Softmax {
+                rest_logit: self.softmax_rest_logit,
+            }
         } else {
-            scores
+            Activation::Sigmoid
         };
-
-        // An unusable score ties with a genuine negative-infinity score, so ask
-        // for one extra place per unusable score: every usable class that
-        // belongs in the top K is then in the list before they are removed.
-        let wanted = self.top_k.saturating_add(unusable_count);
-        let mut predictions = if presigmoid {
-            top_k_predictions_presigmoid(scores, &self.labels, wanted, self.min_confidence)
-        } else if self.config.model_type.output_needs_softmax() {
-            top_k_predictions_softmax(
-                scores,
-                &self.labels,
-                wanted,
-                self.min_confidence,
-                self.softmax_rest_logit,
-            )
-        } else {
-            top_k_predictions(scores, &self.labels, wanted, self.min_confidence)
-        };
-        // Leave out a class whose own score was unusable and anything whose
-        // confidence is not finite (a softmax row with a positive-infinity score).
-        predictions.retain(|prediction| {
-            prediction.confidence.is_finite()
-                && original
-                    .get(prediction.index)
-                    .is_some_and(|&score| !unusable(score))
-        });
-        predictions.truncate(self.top_k);
-        predictions
+        top_k_usable(
+            scores,
+            &self.labels,
+            self.top_k,
+            self.min_confidence,
+            activation,
+        )
     }
 }
 
@@ -731,6 +693,17 @@ mod tests {
     }
 
     #[test]
+    fn decode_batch_keeps_the_higher_logit_when_confidences_tie_at_the_cut() {
+        // sigmoid(20) and sigmoid(30) are both 1.0 in f32, so the confidences
+        // tie; the unusable third score makes the list one entry too long and
+        // the cut to top_k must keep the higher logit.
+        let v24 = PredictionDecoder::new(config(ModelType::BirdNetV24, 3, None), labels(), 1, None)
+            .unwrap();
+        let results = v24.decode_batch(1, &[20.0, 30.0, f32::NAN], None).unwrap();
+        assert_predictions(&results[0], &[("Wren", 1, 1.0)]);
+    }
+
+    #[test]
     fn softmax_rest_logit_of_the_dropped_classes_reproduces_the_full_softmax() {
         // A regional model keeps classes 0, 1 and 3 of a five-class output. The
         // rest logit is the log-sum-exp of the two dropped logits, so the
@@ -862,6 +835,61 @@ mod tests {
         // denominator too: 1 / (1 + 1) is 0.5, not 1 / 3.
         let result = decode(0.0, [0.0, f32::NAN]);
         assert_predictions(&result, &[("Robin", 0, 0.5)]);
+    }
+
+    #[test]
+    fn softmax_gives_a_positive_infinity_logit_all_the_mass() {
+        // exp(inf - inf) is NaN, so a positive-infinity logit used to turn the
+        // whole row into NaN and list nothing. The limit of the softmax is
+        // 1.0 shared by the infinite classes and 0.0 for the rest.
+        let perch = |rest_logit: Option<f32>| {
+            let decoder =
+                PredictionDecoder::new(config(ModelType::PerchV2, 3, None), labels(), 3, None)
+                    .unwrap();
+            match rest_logit {
+                Some(rest) => decoder.with_softmax_rest_logit(rest).unwrap(),
+                None => decoder,
+            }
+        };
+
+        let results = perch(None)
+            .decode_batch(1, &[f32::INFINITY, 0.0, f32::NEG_INFINITY], None)
+            .unwrap();
+        assert_predictions(
+            &results[0],
+            &[("Robin", 0, 1.0), ("Wren", 1, 0.0), ("Owl", 2, 0.0)],
+        );
+
+        // Two infinite logits share the mass.
+        let results = perch(None)
+            .decode_batch(1, &[f32::INFINITY, f32::INFINITY, 1.0], None)
+            .unwrap();
+        assert_predictions(
+            &results[0],
+            &[("Robin", 0, 0.5), ("Wren", 1, 0.5), ("Owl", 2, 0.0)],
+        );
+
+        // A finite rest logit gets none of it either.
+        let results = perch(Some(5.0))
+            .decode_batch(1, &[0.0, f32::INFINITY, -1.0], None)
+            .unwrap();
+        assert_predictions(
+            &results[0],
+            &[("Wren", 1, 1.0), ("Robin", 0, 0.0), ("Owl", 2, 0.0)],
+        );
+
+        // min_confidence applies to those shares: 0.5 each is below 0.6.
+        let threshold =
+            PredictionDecoder::new(config(ModelType::PerchV2, 3, None), labels(), 3, Some(0.6))
+                .unwrap();
+        let results = threshold
+            .decode_batch(1, &[f32::INFINITY, f32::INFINITY, 1.0], None)
+            .unwrap();
+        assert_predictions(&results[0], &[]);
+        let results = threshold
+            .decode_batch(1, &[f32::INFINITY, 0.0, 1.0], None)
+            .unwrap();
+        assert_predictions(&results[0], &[("Robin", 0, 1.0)]);
     }
 
     #[test]

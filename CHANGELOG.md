@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.19] - 2026-11-24
+
+### Fixed
+
+- **Top-K could keep a lower-ranked class when confidences tied.** The
+  selected classes were ordered by confidence, so classes whose confidences
+  round to the same value (sigmoid of logits 20 and 30 is 1.0 in f32 for
+  both) came out in an arbitrary order. When a row also held an unusable
+  score (NaN, or an infinite score from an already-sigmoided model),
+  `PredictionDecoder` cut that list to `top_k` and could keep the lower one:
+  `BirdNET` v2.4 scores `[20.0, 30.0, NaN]` with `top_k` 1 returned class 0.
+  Predictions are now ordered by raw score, and classes with equal raw scores
+  (`-0.0` ranks below `0.0`) are selected and listed lowest class index
+  first, so the result no longer depends on the heap's internal layout. Where
+  equal raw scores straddle the `top_k` cut, the kept class can differ from
+  earlier releases.
+  ([#112](https://github.com/tphakala/rust-birdnet-onnx/issues/112))
+- **`CustomClassifier` listed NaN scores.** `CustomClassifier::predict` and
+  `predict_batch` did not get the unusable-score handling `PredictionDecoder`
+  gained in 2.0.0-rc.17. A NaN logit could be listed with a NaN confidence,
+  and the other classes could come out of rank order around it. A NaN logit
+  now ranks below every other class and is never listed, so a call can return
+  fewer than `top_k` predictions. Infinite logits are still listed, at
+  confidence 1.0 and 0.0. With `min_confidence` set, the NaN entry was
+  already filtered out, but with `top_k` below the class count it could still
+  take a place a real class now gets.
+  ([#115](https://github.com/tphakala/rust-birdnet-onnx/issues/115))
+- **A positive-infinity logit emptied a `Perch` v2 row.** The softmax
+  computed exp(inf - inf), which is NaN, so every confidence in the row was
+  NaN and no prediction was listed, not even the infinite class. The row now
+  gets the softmax's limit: classes whose logit is positive infinity share a
+  confidence of 1.0 and every other class gets 0.0, with or without a rest
+  logit.
+- **`birdnet-analyze` rejected negative `--lat` and `--lon`.** `--lat -33.8`
+  failed with "unexpected argument '-3' found", so southern latitudes and
+  western longitudes only worked written as `--lat=-33.8`. Both options now
+  take negative values.
+  ([#113](https://github.com/tphakala/rust-birdnet-onnx/issues/113))
+
 ## [2.0.0-rc.18] - 2026-11-24
 
 ### Added
