@@ -2,7 +2,7 @@
 
 use crate::error::{Error, Result};
 use crate::labels;
-use crate::postprocess::top_k_predictions;
+use crate::postprocess::{Activation, top_k_usable};
 use crate::types::Prediction;
 use ndarray::Array2;
 use ort::session::Session;
@@ -121,6 +121,9 @@ impl CustomClassifier {
 
     /// Classify a single embedding vector.
     ///
+    /// A NaN logit ranks below every other class and is never listed, so fewer
+    /// than the configured top-K predictions can come back.
+    ///
     /// # Errors
     ///
     /// Returns an error if the embedding length does not match the expected
@@ -152,15 +155,19 @@ impl CustomClassifier {
 
         let logits = extract_tensor_data(&outputs, 0, self.num_classes)?;
 
-        Ok(top_k_predictions(
+        Ok(top_k_usable(
             &logits,
             &self.labels,
             self.top_k,
             self.min_confidence,
+            Activation::Sigmoid,
         ))
     }
 
     /// Classify a batch of embedding vectors.
+    ///
+    /// A NaN logit ranks below every other class and is never listed, so fewer
+    /// than the configured top-K predictions can come back.
     ///
     /// # Errors
     ///
@@ -211,11 +218,12 @@ impl CustomClassifier {
             let end = start + self.num_classes;
             let logits = &all_logits[start..end];
 
-            results.push(top_k_predictions(
+            results.push(top_k_usable(
                 logits,
                 &self.labels,
                 self.top_k,
                 self.min_confidence,
+                Activation::Sigmoid,
             ));
         }
 

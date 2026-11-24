@@ -41,7 +41,7 @@ impl Ord for ScoreEntry {
 /// Select top-K predictions with sigmoid activation
 ///
 /// Uses min-heap for O(n log k) selection, then applies sigmoid only to top-K.
-pub fn top_k_predictions(
+fn top_k_predictions(
     logits: &[f32],
     labels: &[String],
     top_k: usize,
@@ -60,7 +60,7 @@ pub fn top_k_predictions(
 /// stands in for classes the model does not output (regional Perch v2 slices).
 /// The rest logit is part of the max that is subtracted, so it cannot overflow
 /// `exp`. Without it the result is the plain softmax over `logits`.
-pub fn top_k_predictions_softmax(
+fn top_k_predictions_softmax(
     logits: &[f32],
     labels: &[String],
     top_k: usize,
@@ -90,13 +90,92 @@ pub fn top_k_predictions_softmax(
 ///
 /// Used for `BirdNET` v3.0 and BSG Finland, whose ONNX graphs apply the sigmoid.
 /// Same algorithm as [`top_k_predictions`] but skips the sigmoid transformation.
-pub fn top_k_predictions_presigmoid(
+fn top_k_predictions_presigmoid(
     scores: &[f32],
     labels: &[String],
     top_k: usize,
     min_confidence: Option<f32>,
 ) -> Vec<Prediction> {
     top_k_with_transform(scores, labels, top_k, min_confidence, |s| s)
+}
+
+/// How a model's raw class scores become confidence values.
+#[derive(Debug, Clone, Copy)]
+pub enum Activation {
+    /// Logits through sigmoid: `BirdNET` v2.4 and custom classifiers.
+    Sigmoid,
+    /// Scores the graph already passed through sigmoid: `BirdNET` v3.0 and BSG Finland.
+    Presigmoid,
+    /// Softmax over the row, for `Perch` v2. A `rest_logit` adds one more
+    /// term to the denominator; see `top_k_predictions_softmax`.
+    Softmax {
+        /// Rest logit of a regional model, or `None` for the plain softmax.
+        rest_logit: Option<f32>,
+    },
+}
+
+/// Select the top-K predictions of one row, leaving out unusable scores.
+///
+/// A NaN score, and for [`Activation::Presigmoid`] an infinite one, ranks
+/// below every usable class and is never listed, nor is any prediction
+/// whose confidence is not finite, so fewer than `top_k` predictions can
+/// come back. `scores` itself is not modified.
+pub fn top_k_usable(
+    scores: &[f32],
+    labels: &[String],
+    top_k: usize,
+    min_confidence: Option<f32>,
+    activation: Activation,
+) -> Vec<Prediction> {
+    let presigmoid = matches!(activation, Activation::Presigmoid);
+    // Ranking uses `total_cmp`, which puts NaN above every number, so a NaN
+    // score would take a top-K slot, and one NaN in a softmax row turns
+    // every probability into NaN. Rank such a score as the lowest possible
+    // value instead. For already-sigmoided output an infinite value is not
+    // a probability either, so it is ranked lowest too.
+    let unusable = |score: f32| score.is_nan() || (presigmoid && score.is_infinite());
+    let original = scores;
+    let unusable_count = scores.iter().filter(|&&score| unusable(score)).count();
+    let cleaned: Vec<f32>;
+    let scores = if unusable_count > 0 {
+        cleaned = scores
+            .iter()
+            .map(|&score| {
+                if unusable(score) {
+                    f32::NEG_INFINITY
+                } else {
+                    score
+                }
+            })
+            .collect();
+        &cleaned[..]
+    } else {
+        scores
+    };
+
+    // An unusable score ties with a genuine negative-infinity score, so ask
+    // for one extra place per unusable score: every usable class that
+    // belongs in the top K is then in the list before they are removed.
+    let wanted = top_k.saturating_add(unusable_count);
+    let mut predictions = match activation {
+        Activation::Sigmoid => top_k_predictions(scores, labels, wanted, min_confidence),
+        Activation::Presigmoid => {
+            top_k_predictions_presigmoid(scores, labels, wanted, min_confidence)
+        }
+        Activation::Softmax { rest_logit } => {
+            top_k_predictions_softmax(scores, labels, wanted, min_confidence, rest_logit)
+        }
+    };
+    // Leave out a class whose own score was unusable and anything whose
+    // confidence is not finite (a softmax row with a positive-infinity score).
+    predictions.retain(|prediction| {
+        prediction.confidence.is_finite()
+            && original
+                .get(prediction.index)
+                .is_some_and(|&score| !unusable(score))
+    });
+    predictions.truncate(top_k);
+    predictions
 }
 
 /// Core top-K selection with a configurable score transform.
@@ -316,10 +395,28 @@ mod tests {
         // Should handle NaN gracefully using total_cmp
         let predictions = top_k_predictions(&logits, &labels, 3, None);
 
-        // total_cmp ranks f32::NAN (a positive NaN) above every number, so it
-        // is selected and listed first; the finite scores follow in rank order.
+        // No caller passes NaN here (top_k_usable cleans it out first); this
+        // pins that the order stays total if one does. total_cmp ranks
+        // f32::NAN above every number, so it is listed first and the finite
+        // scores follow in rank order.
         let indices: Vec<usize> = predictions.iter().map(|p| p.index).collect();
         assert_eq!(indices, [1, 2, 0]);
+    }
+
+    #[test]
+    fn test_top_k_usable_sigmoid_never_lists_a_nan_score() {
+        let labels: Vec<String> = (0..4).map(|i| format!("species_{i}")).collect();
+        let rows: [(&[f32], usize, &[usize]); 4] = [
+            (&[1.0, f32::NAN, 2.0, 0.5], 3, &[2, 0, 3]),
+            (&[1.0, -f32::NAN, 2.0, 0.5], 4, &[2, 0, 3]),
+            (&[f32::NAN, 1.0, -f32::NAN], 3, &[1]),
+            (&[f32::INFINITY, f32::NAN, f32::NEG_INFINITY], 3, &[0, 2]),
+        ];
+        for (scores, top_k, want) in rows {
+            let predictions = top_k_usable(scores, &labels, top_k, None, Activation::Sigmoid);
+            let indices: Vec<usize> = predictions.iter().map(|p| p.index).collect();
+            assert_eq!(indices, want, "scores {scores:?}, top_k {top_k}");
+        }
     }
 
     #[test]

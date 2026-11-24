@@ -19,10 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Predictions are now ordered by raw score, and classes with equal raw scores
   are selected and listed lowest class index first, so the result no longer
   depends on the heap's internal layout. Where equal raw scores straddle the
-  `top_k` cut, the kept class can differ from earlier releases. In
-  `CustomClassifier` output with a NaN logit and no `min_confidence`, the
-  other classes now stay in rank order around it.
+  `top_k` cut, the kept class can differ from earlier releases.
   ([#112](https://github.com/tphakala/rust-birdnet-onnx/issues/112))
+- **`CustomClassifier` listed NaN scores.** `CustomClassifier::predict` and
+  `predict_batch` did not get the unusable-score handling `PredictionDecoder`
+  gained in 2.0.0-rc.17. A NaN logit took a top-K place ahead of every real
+  class, or was listed anyway when `top_k` covered every class (the default),
+  with a NaN confidence, and the other classes could come out of rank order
+  around it. A NaN logit now ranks below every other class and is never
+  listed, so a call can return fewer than `top_k` predictions. Infinite
+  logits are still listed, at confidence 1.0 and 0.0. With `min_confidence`
+  set, NaN was already filtered out and results are unchanged.
+  ([#115](https://github.com/tphakala/rust-birdnet-onnx/issues/115))
 
 ## [2.0.0-rc.18] - 2026-11-24
 

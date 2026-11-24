@@ -7,9 +7,7 @@
 //! runs the same models share one implementation.
 
 use crate::error::{Error, Result};
-use crate::postprocess::{
-    top_k_predictions, top_k_predictions_presigmoid, top_k_predictions_softmax,
-};
+use crate::postprocess::{Activation, top_k_usable};
 use crate::types::{ModelConfig, Prediction, PredictionResult};
 
 /// Turns flat output buffers from a model run into [`PredictionResult`]s.
@@ -399,61 +397,25 @@ impl PredictionDecoder {
         Ok(results)
     }
 
-    /// Select top-K predictions, choosing the correct score transform for the model type.
+    /// Select top-K predictions with the activation the model family needs.
     fn select_top_k(&self, scores: &[f32]) -> Vec<Prediction> {
-        let presigmoid = self.config.model_type.output_is_sigmoid();
-        // Ranking uses `total_cmp`, which puts NaN above every number, so a NaN
-        // score would take a top-K slot, and one NaN in a softmax row turns
-        // every probability into NaN. Rank such a score as the lowest possible
-        // value instead. For already-sigmoided output an infinite value is not
-        // a probability either, so it is ranked lowest too.
-        let unusable = |score: f32| score.is_nan() || (presigmoid && score.is_infinite());
-        let original = scores;
-        let unusable_count = scores.iter().filter(|&&score| unusable(score)).count();
-        let cleaned: Vec<f32>;
-        let scores = if unusable_count > 0 {
-            cleaned = scores
-                .iter()
-                .map(|&score| {
-                    if unusable(score) {
-                        f32::NEG_INFINITY
-                    } else {
-                        score
-                    }
-                })
-                .collect();
-            &cleaned[..]
+        let model_type = self.config.model_type;
+        let activation = if model_type.output_is_sigmoid() {
+            Activation::Presigmoid
+        } else if model_type.output_needs_softmax() {
+            Activation::Softmax {
+                rest_logit: self.softmax_rest_logit,
+            }
         } else {
-            scores
+            Activation::Sigmoid
         };
-
-        // An unusable score ties with a genuine negative-infinity score, so ask
-        // for one extra place per unusable score: every usable class that
-        // belongs in the top K is then in the list before they are removed.
-        let wanted = self.top_k.saturating_add(unusable_count);
-        let mut predictions = if presigmoid {
-            top_k_predictions_presigmoid(scores, &self.labels, wanted, self.min_confidence)
-        } else if self.config.model_type.output_needs_softmax() {
-            top_k_predictions_softmax(
-                scores,
-                &self.labels,
-                wanted,
-                self.min_confidence,
-                self.softmax_rest_logit,
-            )
-        } else {
-            top_k_predictions(scores, &self.labels, wanted, self.min_confidence)
-        };
-        // Leave out a class whose own score was unusable and anything whose
-        // confidence is not finite (a softmax row with a positive-infinity score).
-        predictions.retain(|prediction| {
-            prediction.confidence.is_finite()
-                && original
-                    .get(prediction.index)
-                    .is_some_and(|&score| !unusable(score))
-        });
-        predictions.truncate(self.top_k);
-        predictions
+        top_k_usable(
+            scores,
+            &self.labels,
+            self.top_k,
+            self.min_confidence,
+            activation,
+        )
     }
 }
 
