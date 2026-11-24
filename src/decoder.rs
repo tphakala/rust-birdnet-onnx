@@ -17,8 +17,8 @@ use crate::types::{ModelConfig, Prediction, PredictionResult};
 /// The decoder holds no inference state. It applies the activation the model
 /// family needs (sigmoid, softmax for `Perch` v2, none for `BirdNET` v3.0 and
 /// the BSG Finland head, whose graphs already apply the sigmoid), selects the
-/// top-K species, applies the confidence
-/// threshold and slices embeddings per batch row.
+/// top-K species, applies the confidence threshold and slices embeddings per
+/// batch row.
 ///
 /// # Example
 ///
