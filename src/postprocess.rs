@@ -12,9 +12,8 @@ struct ScoreEntry {
 
 impl PartialEq for ScoreEntry {
     fn eq(&self, other: &Self) -> bool {
-        // Use total ordering for consistent behavior with NaN values.
-        // This ensures PartialEq and Ord are consistent for heap operations.
-        self.score.total_cmp(&other.score) == Ordering::Equal
+        // Equal only when cmp says so: BinaryHeap needs Eq and Ord to agree.
+        self.cmp(other) == Ordering::Equal
     }
 }
 
@@ -28,9 +27,14 @@ impl PartialOrd for ScoreEntry {
 
 impl Ord for ScoreEntry {
     fn cmp(&self, other: &Self) -> Ordering {
-        // Reverse order for min-heap (smallest at top, gets popped first)
-        // Use total_cmp for consistent NaN handling with PartialEq
-        other.score.total_cmp(&self.score)
+        // Reverse order for a min-heap: the lowest score sits at the top and is
+        // popped first. Among equal scores the higher index is popped first, so
+        // the lowest indices are kept. total_cmp gives NaN a fixed place: a
+        // positive NaN ranks above +inf, a negative NaN below -inf.
+        other
+            .score
+            .total_cmp(&self.score)
+            .then(self.index.cmp(&other.index))
     }
 }
 
@@ -97,8 +101,12 @@ pub fn top_k_predictions_presigmoid(
 
 /// Core top-K selection with a configurable score transform.
 ///
-/// Uses min-heap for O(n log k) selection, applies `transform` to convert
-/// raw scores to confidence values.
+/// Uses a min-heap for O(n log k) selection and applies `transform` to
+/// convert raw scores to confidence values. The result is ordered by raw
+/// score, highest first, with equal raw scores in class index order. Every
+/// `transform` used here is non-decreasing, so confidences come out
+/// non-increasing and classes whose confidences round to the same value
+/// keep their rank.
 fn top_k_with_transform(
     scores: &[f32],
     labels: &[String],
@@ -122,8 +130,11 @@ fn top_k_with_transform(
         }
     }
 
-    // Convert to predictions with score transform
-    let mut predictions: Vec<Prediction> = heap
+    // into_sorted_vec is ascending in ScoreEntry's reversed order: raw score
+    // descending, equal scores by index. Ordering by raw score rather than by
+    // confidence keeps rank when confidences tie, e.g. sigmoid(20) and
+    // sigmoid(30) are both 1.0 in f32.
+    heap.into_sorted_vec()
         .into_iter()
         .map(|entry| {
             let confidence = transform(entry.score);
@@ -137,16 +148,7 @@ fn top_k_with_transform(
             }
         })
         .filter(|p| min_confidence.is_none_or(|min| p.confidence >= min))
-        .collect();
-
-    // Sort by confidence descending
-    predictions.sort_by(|a, b| {
-        b.confidence
-            .partial_cmp(&a.confidence)
-            .unwrap_or(Ordering::Equal)
-    });
-
-    predictions
+        .collect()
 }
 
 /// Sigmoid activation function
@@ -267,7 +269,7 @@ mod tests {
 
     #[test]
     fn test_top_k_all_equal_scores() {
-        // When all scores are equal, order is determined by heap behavior
+        // Equal scores: the lowest class indices are selected, in index order.
         let logits = vec![0.5, 0.5, 0.5, 0.5];
         let labels: Vec<String> = (0..4).map(|i| format!("species_{i}")).collect();
 
@@ -276,6 +278,20 @@ mod tests {
         assert_eq!(predictions.len(), 2);
         // All confidences should be the same
         assert!((predictions[0].confidence - predictions[1].confidence).abs() < 0.0001);
+        let indices: Vec<usize> = predictions.iter().map(|p| p.index).collect();
+        assert_eq!(indices, [0, 1]);
+    }
+
+    #[test]
+    fn test_top_k_orders_tied_confidences_by_raw_score() {
+        // sigmoid(20) and sigmoid(30) are both 1.0 in f32.
+        let logits = vec![20.0, 30.0];
+        let labels: Vec<String> = (0..2).map(|i| format!("species_{i}")).collect();
+
+        let predictions = top_k_predictions(&logits, &labels, 2, None);
+
+        let indices: Vec<usize> = predictions.iter().map(|p| p.index).collect();
+        assert_eq!(indices, [1, 0]);
     }
 
     #[test]
@@ -300,8 +316,10 @@ mod tests {
         // Should handle NaN gracefully using total_cmp
         let predictions = top_k_predictions(&logits, &labels, 3, None);
 
-        // NaN confidence should not pass any filter, but test shouldn't panic
-        assert!(!predictions.is_empty());
+        // total_cmp ranks f32::NAN (a positive NaN) above every number, so it
+        // is selected and listed first; the finite scores follow in rank order.
+        let indices: Vec<usize> = predictions.iter().map(|p| p.index).collect();
+        assert_eq!(indices, [1, 2, 0]);
     }
 
     #[test]
@@ -374,7 +392,7 @@ mod tests {
 
         // Reverse order for min-heap
         assert!(entry1 > entry2); // 1.0 > 2.0 in min-heap ordering
-        assert!(entry1 == entry3); // Equal scores
+        assert!(entry3 > entry1); // Equal scores: the higher index is popped first
     }
 
     #[test]

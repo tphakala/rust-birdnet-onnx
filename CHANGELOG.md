@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Top-K could keep a lower-ranked class when confidences tied.** The
+  selected classes were ordered by confidence, so classes whose confidences
+  round to the same value (sigmoid of logits 20 and 30 is 1.0 in f32 for
+  both) came out in an arbitrary order. When a row also held an unusable
+  score (NaN, or an infinite score from an already-sigmoided model),
+  `PredictionDecoder` cut that list to `top_k` and could keep the lower one:
+  `BirdNET` v2.4 scores `[20.0, 30.0, NaN]` with `top_k` 1 returned class 0.
+  Predictions are now ordered by raw score, and classes with equal raw scores
+  are selected and listed lowest class index first, so the result no longer
+  depends on the heap's internal layout. Where equal raw scores straddle the
+  `top_k` cut, the kept class can differ from earlier releases. In
+  `CustomClassifier` output with a NaN logit and no `min_confidence`, the
+  other classes now stay in rank order around it.
+  ([#112](https://github.com/tphakala/rust-birdnet-onnx/issues/112))
+
 ## [2.0.0-rc.18] - 2026-11-24
 
 ### Added

@@ -731,6 +731,17 @@ mod tests {
     }
 
     #[test]
+    fn decode_batch_keeps_the_higher_logit_when_confidences_tie_at_the_cut() {
+        // sigmoid(20) and sigmoid(30) are both 1.0 in f32, so the confidences
+        // tie; the unusable third score makes the list one entry too long and
+        // the cut to top_k must keep the higher logit.
+        let v24 = PredictionDecoder::new(config(ModelType::BirdNetV24, 3, None), labels(), 1, None)
+            .unwrap();
+        let results = v24.decode_batch(1, &[20.0, 30.0, f32::NAN], None).unwrap();
+        assert_predictions(&results[0], &[("Wren", 1, 1.0)]);
+    }
+
+    #[test]
     fn softmax_rest_logit_of_the_dropped_classes_reproduces_the_full_softmax() {
         // A regional model keeps classes 0, 1 and 3 of a five-class output. The
         // rest logit is the log-sum-exp of the two dropped logits, so the
