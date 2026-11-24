@@ -561,6 +561,14 @@ mod tests {
             .unwrap();
         assert_predictions(&results[0], &[("Owl", 2, 0.5), ("Wren", 1, 0.25)]);
 
+        // BirdNET v3.0 output is already sigmoided too.
+        let v30 = PredictionDecoder::new(config(ModelType::BirdNetV30, 3, None), labels(), 2, None)
+            .unwrap();
+        let results = v30
+            .decode_batch(1, &[f32::INFINITY, 0.25, 0.5], None)
+            .unwrap();
+        assert_predictions(&results[0], &[("Owl", 2, 0.5), ("Wren", 1, 0.25)]);
+
         // Fewer usable classes than top_k: the unusable one is left out.
         let results = v24
             .decode_batch(1, &[f32::NAN, 1.0, f32::NAN], None)
