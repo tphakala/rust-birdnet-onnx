@@ -132,7 +132,9 @@ pub struct PredictionResult {
     pub predictions: Vec<Prediction>,
     /// Feature embeddings (None for `BirdNET` v2.4).
     pub embeddings: Option<Vec<f32>>,
-    /// Raw logits from model output.
+    /// Class scores as the model returned them, before the decoder's activation:
+    /// logits for `BirdNET` v2.4 and `Perch` v2, probabilities for `BirdNET` v3.0
+    /// and BSG Finland.
     pub raw_scores: Vec<f32>,
 }
 
