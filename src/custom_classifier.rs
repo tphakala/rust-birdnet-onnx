@@ -155,12 +155,11 @@ impl CustomClassifier {
 
         let logits = extract_tensor_data(&outputs, 0, self.num_classes)?;
 
-        Ok(top_k_usable(
+        Ok(decode_row(
             &logits,
             &self.labels,
             self.top_k,
             self.min_confidence,
-            Activation::Sigmoid,
         ))
     }
 
@@ -218,12 +217,11 @@ impl CustomClassifier {
             let end = start + self.num_classes;
             let logits = &all_logits[start..end];
 
-            results.push(top_k_usable(
+            results.push(decode_row(
                 logits,
                 &self.labels,
                 self.top_k,
                 self.min_confidence,
-                Activation::Sigmoid,
             ));
         }
 
@@ -311,10 +309,46 @@ fn extract_tensor_data(
     Ok(flat)
 }
 
+/// Turn one row of logits from a custom head into predictions.
+///
+/// Custom heads output logits, so this applies sigmoid. A NaN logit ranks
+/// below every other class and is never listed; positive and negative
+/// infinity are listed at 1.0 and 0.0. `predict` and `predict_batch` both
+/// decode each row through this function.
+fn decode_row(
+    logits: &[f32],
+    labels: &[String],
+    top_k: usize,
+    min_confidence: Option<f32>,
+) -> Vec<Prediction> {
+    top_k_usable(logits, labels, top_k, min_confidence, Activation::Sigmoid)
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+
+    #[test]
+    fn decode_row_applies_sigmoid_and_never_lists_a_nan_logit() {
+        let labels: Vec<String> = ["a", "b", "c", "d"].map(String::from).to_vec();
+        let logits = [2.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY];
+
+        let predictions = decode_row(&logits, &labels, 4, None);
+
+        // (class index, confidence): sigmoid(+inf) = 1.0, sigmoid(2.0), sigmoid(-inf) = 0.0.
+        let want = [(2, 1.0), (0, 0.880_797_1), (3, 0.0)];
+        let got: Vec<usize> = predictions.iter().map(|p| p.index).collect();
+        assert_eq!(got, want.map(|(index, _)| index));
+        for (prediction, (_, confidence)) in predictions.iter().zip(want) {
+            assert!(
+                (prediction.confidence - confidence).abs() < 1e-6,
+                "class {}: confidence {} differs from {confidence}",
+                prediction.index,
+                prediction.confidence
+            );
+        }
+    }
 
     #[test]
     fn test_builder_requires_model_path() {
