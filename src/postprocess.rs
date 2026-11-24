@@ -29,8 +29,9 @@ impl Ord for ScoreEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         // Reverse order for a min-heap: the lowest score sits at the top and is
         // popped first. Among equal scores the higher index is popped first, so
-        // the lowest indices are kept. total_cmp gives NaN a fixed place: a
-        // positive NaN ranks above +inf, a negative NaN below -inf.
+        // the lowest indices are kept. total_cmp gives NaN a fixed place (a
+        // positive NaN ranks above +inf, a negative NaN below -inf) and ranks
+        // -0.0 below 0.0, so only bit-identical scores count as equal.
         other
             .score
             .total_cmp(&self.score)
@@ -182,10 +183,10 @@ pub fn top_k_usable(
 ///
 /// Uses a min-heap for O(n log k) selection and applies `transform` to
 /// convert raw scores to confidence values. The result is ordered by raw
-/// score, highest first, with equal raw scores in class index order. Every
-/// `transform` used here is non-decreasing, so confidences come out
-/// non-increasing and classes whose confidences round to the same value
-/// keep their rank.
+/// score, highest first, with equal raw scores in class index order (`-0.0`
+/// ranks below `0.0`). Every `transform` used here is non-decreasing, so
+/// confidences come out non-increasing and classes whose confidences round to
+/// the same value keep their rank.
 fn top_k_with_transform(
     scores: &[f32],
     labels: &[String],
@@ -210,8 +211,8 @@ fn top_k_with_transform(
     }
 
     // into_sorted_vec is ascending in ScoreEntry's reversed order: raw score
-    // descending, equal scores by index. Ordering by raw score rather than by
-    // confidence keeps rank when confidences tie, e.g. sigmoid(20) and
+    // descending, ties under total_cmp by index. Ordering by raw score rather
+    // than by confidence keeps rank when confidences tie, e.g. sigmoid(20) and
     // sigmoid(30) are both 1.0 in f32.
     heap.into_sorted_vec()
         .into_iter()

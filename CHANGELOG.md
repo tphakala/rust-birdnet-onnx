@@ -17,9 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PredictionDecoder` cut that list to `top_k` and could keep the lower one:
   `BirdNET` v2.4 scores `[20.0, 30.0, NaN]` with `top_k` 1 returned class 0.
   Predictions are now ordered by raw score, and classes with equal raw scores
-  are selected and listed lowest class index first, so the result no longer
-  depends on the heap's internal layout. Where equal raw scores straddle the
-  `top_k` cut, the kept class can differ from earlier releases.
+  (`-0.0` ranks below `0.0`) are selected and listed lowest class index
+  first, so the result no longer depends on the heap's internal layout. Where
+  equal raw scores straddle the `top_k` cut, the kept class can differ from
+  earlier releases.
   ([#112](https://github.com/tphakala/rust-birdnet-onnx/issues/112))
 - **`CustomClassifier` listed NaN scores.** `CustomClassifier::predict` and
   `predict_batch` did not get the unusable-score handling `PredictionDecoder`
