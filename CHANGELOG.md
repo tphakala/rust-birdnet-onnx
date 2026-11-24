@@ -23,13 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#112](https://github.com/tphakala/rust-birdnet-onnx/issues/112))
 - **`CustomClassifier` listed NaN scores.** `CustomClassifier::predict` and
   `predict_batch` did not get the unusable-score handling `PredictionDecoder`
-  gained in 2.0.0-rc.17. A NaN logit took a top-K place ahead of every real
-  class, or was listed anyway when `top_k` covered every class (the default),
-  with a NaN confidence, and the other classes could come out of rank order
-  around it. A NaN logit now ranks below every other class and is never
-  listed, so a call can return fewer than `top_k` predictions. Infinite
-  logits are still listed, at confidence 1.0 and 0.0. With `min_confidence`
-  set, NaN was already filtered out and results are unchanged.
+  gained in 2.0.0-rc.17. A NaN logit could be listed with a NaN confidence,
+  and the other classes could come out of rank order around it. A NaN logit
+  now ranks below every other class and is never listed, so a call can return
+  fewer than `top_k` predictions. Infinite logits are still listed, at
+  confidence 1.0 and 0.0. With `min_confidence` set, the NaN entry was
+  already filtered out, but with `top_k` below the class count it could still
+  take a place a real class now gets.
   ([#115](https://github.com/tphakala/rust-birdnet-onnx/issues/115))
 - **`birdnet-analyze` rejected negative `--lat` and `--lon`.** `--lat -33.8`
   failed with "unexpected argument '-3' found", so southern latitudes and
