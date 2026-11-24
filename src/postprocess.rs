@@ -129,11 +129,12 @@ pub fn top_k_usable(
     activation: Activation,
 ) -> Vec<Prediction> {
     let presigmoid = matches!(activation, Activation::Presigmoid);
-    // Ranking uses `total_cmp`, which puts NaN above every number, so a NaN
-    // score would take a top-K slot, and one NaN in a softmax row turns
-    // every probability into NaN. Rank such a score as the lowest possible
-    // value instead. For already-sigmoided output an infinite value is not
-    // a probability either, so it is ranked lowest too.
+    // Ranking uses `total_cmp`, which puts a positive NaN above every number,
+    // so such a score would take a top-K slot, and one NaN of either sign in
+    // a softmax row turns every probability into NaN. Rank a NaN of either
+    // sign as the lowest possible value instead. For already-sigmoided output
+    // an infinite value is not a probability either, so it is ranked lowest
+    // too.
     let unusable = |score: f32| score.is_nan() || (presigmoid && score.is_infinite());
     let original = scores;
     let unusable_count = scores.iter().filter(|&&score| unusable(score)).count();
