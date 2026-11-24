@@ -76,6 +76,26 @@ fn top_k_predictions_softmax(
     // with the rest logit as one more term and part of the max when given.
     let max = logits.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
     let max = rest_logit.map_or(max, |rest| max.max(rest));
+
+    // With a positive-infinity logit, exp(inf - inf) is NaN and would turn the
+    // whole row into NaN. Use the softmax's limit instead: the infinite
+    // classes share 1.0 and every other class, and the rest logit, gets 0.0.
+    let is_positive_infinity = |x: f32| x.is_infinite() && x.is_sign_positive();
+    if is_positive_infinity(max) {
+        let winners: f32 = logits
+            .iter()
+            .filter(|&&x| is_positive_infinity(x))
+            .map(|_| 1.0)
+            .sum();
+        return top_k_with_transform(logits, labels, top_k, min_confidence, |x| {
+            if is_positive_infinity(x) {
+                1.0 / winners
+            } else {
+                0.0
+            }
+        });
+    }
+
     let mut sum_exp: f32 = logits.iter().map(|&x| (x - max).exp()).sum();
     if let Some(rest) = rest_logit {
         sum_exp += (rest - max).exp();
@@ -120,7 +140,9 @@ pub enum Activation {
 /// A NaN score, and for [`Activation::Presigmoid`] an infinite one, ranks
 /// below every usable class and is never listed, nor is any prediction
 /// whose confidence is not finite, so fewer than `top_k` predictions can
-/// come back. `scores` itself is not modified.
+/// come back. For [`Activation::Softmax`], positive-infinity scores share a
+/// confidence of 1.0 and every other class gets 0.0. `scores` itself is not
+/// modified.
 pub fn top_k_usable(
     scores: &[f32],
     labels: &[String],
@@ -169,7 +191,8 @@ pub fn top_k_usable(
         }
     };
     // Leave out a class whose own score was unusable and anything whose
-    // confidence is not finite (a softmax row with a positive-infinity score).
+    // confidence is not finite (a softmax row whose every logit is negative
+    // infinity, with no rest logit).
     predictions.retain(|prediction| {
         prediction.confidence.is_finite()
             && original

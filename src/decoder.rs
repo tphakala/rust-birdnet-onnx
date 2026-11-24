@@ -838,6 +838,61 @@ mod tests {
     }
 
     #[test]
+    fn softmax_gives_a_positive_infinity_logit_all_the_mass() {
+        // exp(inf - inf) is NaN, so a positive-infinity logit used to turn the
+        // whole row into NaN and list nothing. The limit of the softmax is
+        // 1.0 shared by the infinite classes and 0.0 for the rest.
+        let perch = |rest_logit: Option<f32>| {
+            let decoder =
+                PredictionDecoder::new(config(ModelType::PerchV2, 3, None), labels(), 3, None)
+                    .unwrap();
+            match rest_logit {
+                Some(rest) => decoder.with_softmax_rest_logit(rest).unwrap(),
+                None => decoder,
+            }
+        };
+
+        let results = perch(None)
+            .decode_batch(1, &[f32::INFINITY, 0.0, f32::NEG_INFINITY], None)
+            .unwrap();
+        assert_predictions(
+            &results[0],
+            &[("Robin", 0, 1.0), ("Wren", 1, 0.0), ("Owl", 2, 0.0)],
+        );
+
+        // Two infinite logits share the mass.
+        let results = perch(None)
+            .decode_batch(1, &[f32::INFINITY, f32::INFINITY, 1.0], None)
+            .unwrap();
+        assert_predictions(
+            &results[0],
+            &[("Robin", 0, 0.5), ("Wren", 1, 0.5), ("Owl", 2, 0.0)],
+        );
+
+        // A finite rest logit gets none of it either.
+        let results = perch(Some(5.0))
+            .decode_batch(1, &[0.0, f32::INFINITY, -1.0], None)
+            .unwrap();
+        assert_predictions(
+            &results[0],
+            &[("Wren", 1, 1.0), ("Robin", 0, 0.0), ("Owl", 2, 0.0)],
+        );
+
+        // min_confidence applies to those shares: 0.5 each is below 0.6.
+        let threshold =
+            PredictionDecoder::new(config(ModelType::PerchV2, 3, None), labels(), 3, Some(0.6))
+                .unwrap();
+        let results = threshold
+            .decode_batch(1, &[f32::INFINITY, f32::INFINITY, 1.0], None)
+            .unwrap();
+        assert_predictions(&results[0], &[]);
+        let results = threshold
+            .decode_batch(1, &[f32::INFINITY, 0.0, 1.0], None)
+            .unwrap();
+        assert_predictions(&results[0], &[("Robin", 0, 1.0)]);
+    }
+
+    #[test]
     fn decode_batch_reports_a_result_vector_that_cannot_be_allocated() {
         // A zero-width model accepts an empty scores buffer for any batch size,
         // so only the result allocation can fail.

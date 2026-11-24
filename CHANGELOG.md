@@ -34,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already filtered out, but with `top_k` below the class count it could still
   take a place a real class now gets.
   ([#115](https://github.com/tphakala/rust-birdnet-onnx/issues/115))
+- **A positive-infinity logit emptied a `Perch` v2 row.** The softmax
+  computed exp(inf - inf), which is NaN, so every confidence in the row was
+  NaN and no prediction was listed, not even the infinite class. The row now
+  gets the softmax's limit: classes whose logit is positive infinity share a
+  confidence of 1.0 and every other class gets 0.0, with or without a rest
+  logit.
 - **`birdnet-analyze` rejected negative `--lat` and `--lon`.** `--lat -33.8`
   failed with "unexpected argument '-3' found", so southern latitudes and
   western longitudes only worked written as `--lat=-33.8`. Both options now
