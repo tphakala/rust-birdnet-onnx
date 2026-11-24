@@ -71,6 +71,10 @@ struct Args {
     #[arg(long, default_value = "0.1")]
     min_confidence: f32,
 
+    /// Softmax rest logit for a regional Perch v2 model, taken from its manifest entry
+    #[arg(long, allow_negative_numbers = true)]
+    softmax_rest_logit: Option<f32>,
+
     /// Override model type detection (v24, v30, perch, bsg)
     #[arg(long)]
     model_type: Option<String>,
@@ -414,6 +418,10 @@ fn run_with_args(args: Args) -> Result<()> {
 
     if let Some(mt) = model_type_override {
         builder = builder.model_type(mt);
+    }
+
+    if let Some(rest_logit) = args.softmax_rest_logit {
+        builder = builder.softmax_rest_logit(rest_logit);
     }
 
     // Configure execution provider (CPU uses default, caught by wildcard)

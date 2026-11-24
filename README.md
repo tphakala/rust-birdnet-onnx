@@ -95,6 +95,20 @@ fn main() -> Result<()> {
 }
 ```
 
+### Perch v2 regional models
+
+A regional Perch v2 file outputs only a subset of the global model's classes, so the plain softmax over the kept classes overstates each of them. Set the rest logit from the `score_calibration.rest_logit` value of the model's manifest entry, and the softmax denominator accounts for the dropped classes:
+
+```rust
+let classifier = Classifier::builder()
+    .model_path("perch_v2_baltics_no_dft_fp32.onnx")
+    .labels_path("labels.txt")
+    .softmax_rest_logit(9.75)
+    .build()?;
+```
+
+The global Perch v2 model has no such entry and needs no call. Other model types reject the setting with `Error::InvalidSoftmaxRestLogit`.
+
 ### With CUDA GPU
 
 ```rust
@@ -229,6 +243,12 @@ birdnet-analyze recording.wav \
     --batch-size 32 \     # Segments per batch
     --timeout 30 \        # Per-batch timeout in seconds
     -v                    # Verbose output (shows timing, memory usage)
+```
+
+With a regional Perch v2 model (rest logit from its manifest entry):
+
+```bash
+birdnet-analyze recording.wav -m perch_v2_baltics_no_dft_fp32.onnx -l labels.csv --softmax-rest-logit 9.75
 ```
 
 With GPU acceleration:

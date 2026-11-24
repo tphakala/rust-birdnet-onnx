@@ -51,6 +51,7 @@ pub struct ClassifierBuilder {
     requested_provider: ExecutionProviderInfo,
     top_k: usize,
     min_confidence: Option<f32>,
+    softmax_rest_logit: Option<f32>,
 }
 
 impl Default for ClassifierBuilder {
@@ -71,6 +72,7 @@ impl ClassifierBuilder {
             requested_provider: ExecutionProviderInfo::Cpu,
             top_k: 10,
             min_confidence: None,
+            softmax_rest_logit: None,
         }
     }
 
@@ -126,6 +128,36 @@ impl ClassifierBuilder {
     #[must_use]
     pub const fn min_confidence(mut self, threshold: f32) -> Self {
         self.min_confidence = Some(threshold);
+        self
+    }
+
+    /// Set the softmax rest logit of a regional Perch v2 model
+    ///
+    /// Regional Perch v2 files output a subset of the global model's classes.
+    /// Their manifest entry carries a `score_calibration` with the method
+    /// `softmax-rest-logit` and a `rest_logit` value; pass that value here so
+    /// the softmax denominator accounts for the dropped classes. See
+    /// [`PredictionDecoder::with_softmax_rest_logit`] for the formula. The
+    /// global model has no such entry and needs no call.
+    ///
+    /// [`build()`](Self::build) returns [`Error::InvalidSoftmaxRestLogit`] if
+    /// the value is not finite or the model does not use softmax.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use birdnet_onnx::Classifier;
+    ///
+    /// let classifier = Classifier::builder()
+    ///     .model_path("perch_v2_baltics_no_dft_fp32.onnx")
+    ///     .labels_path("labels.txt")
+    ///     .softmax_rest_logit(9.75)
+    ///     .build()?;
+    /// # Ok::<(), birdnet_onnx::Error>(())
+    /// ```
+    #[must_use]
+    pub const fn softmax_rest_logit(mut self, rest_logit: f32) -> Self {
+        self.softmax_rest_logit = Some(rest_logit);
         self
     }
 
@@ -364,6 +396,8 @@ impl ClassifierBuilder {
     /// - Model file cannot be loaded
     /// - Model type cannot be detected
     /// - Label count doesn't match model
+    /// - A softmax rest logit was set that is not finite, or the model does not
+    ///   use softmax ([`Error::InvalidSoftmaxRestLogit`])
     pub fn build(self) -> Result<Classifier> {
         // Validate required fields
         let model_path = self.model_path.ok_or(Error::ModelPathRequired)?;
@@ -403,6 +437,10 @@ impl ClassifierBuilder {
 
         // Validates that the label count matches the model
         let decoder = PredictionDecoder::new(config, labels, self.top_k, self.min_confidence)?;
+        let decoder = match self.softmax_rest_logit {
+            Some(rest_logit) => decoder.with_softmax_rest_logit(rest_logit)?,
+            None => decoder,
+        };
 
         Ok(Classifier {
             inner: Arc::new(ClassifierInner {
@@ -493,6 +531,10 @@ impl std::fmt::Debug for Classifier {
             .field("requested_provider", &self.inner.requested_provider)
             .field("top_k", &self.inner.decoder.top_k())
             .field("min_confidence", &self.inner.decoder.min_confidence())
+            .field(
+                "softmax_rest_logit",
+                &self.inner.decoder.softmax_rest_logit(),
+            )
             .finish_non_exhaustive()
     }
 }
