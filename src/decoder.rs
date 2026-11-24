@@ -15,9 +15,10 @@ use crate::types::{ModelConfig, Prediction, PredictionResult};
 /// Turns flat output buffers from a model run into [`PredictionResult`]s.
 ///
 /// The decoder holds no inference state. It applies the activation the model
-/// family needs (sigmoid, softmax for `Perch` v2, none for the pre-sigmoided
-/// BSG Finland head), selects the top-K species, applies the confidence
-/// threshold and slices embeddings per batch row.
+/// family needs (sigmoid, softmax for `Perch` v2, none for `BirdNET` v3.0 and
+/// the BSG Finland head, whose graphs already apply the sigmoid), selects the
+/// top-K species, applies the confidence threshold and slices embeddings per
+/// batch row.
 ///
 /// # Example
 ///
@@ -211,9 +212,11 @@ impl PredictionDecoder {
     /// let labels = vec!["Robin".to_string(), "Wren".to_string()];
     /// let decoder = PredictionDecoder::new(config, labels, 2, None)?;
     ///
-    /// let scores = [1.0, -1.0, -1.0, 1.0];
+    /// // BirdNET v3.0 scores are already probabilities and pass through unchanged.
+    /// let scores = [0.9, 0.1, 0.2, 0.8];
     /// let embeddings = [0.1, 0.2, 0.3, 0.4];
     /// let results = decoder.decode_batch(2, &scores, Some(&embeddings))?;
+    /// assert_eq!(results[1].predictions[0].confidence, 0.8);
     /// assert_eq!(results[1].embeddings, Some(vec![0.3, 0.4]));
     ///
     /// // A short buffer is an error, not a panic.
@@ -443,6 +446,17 @@ mod tests {
                 row0: vec![("Robin", 0, 0.9), ("Owl", 2, 0.5)],
                 row1: vec![("Owl", 2, 0.45)],
             },
+            Case {
+                name: "pre-sigmoid, BirdNET v3.0 with embeddings",
+                model_type: ModelType::BirdNetV30,
+                embedding_dim: Some(2),
+                top_k: 2,
+                min_confidence: None,
+                scores: [0.02, 0.97, 0.001, 0.6, 0.04, 0.3],
+                embeddings: Some([0.1, 0.2, 0.3, 0.4]),
+                row0: vec![("Wren", 1, 0.97), ("Robin", 0, 0.02)],
+                row1: vec![("Robin", 0, 0.6), ("Owl", 2, 0.3)],
+            },
         ];
 
         for case in cases {
@@ -543,6 +557,14 @@ mod tests {
         let bsg = PredictionDecoder::new(config(ModelType::BsgFinland, 3, None), labels(), 2, None)
             .unwrap();
         let results = bsg
+            .decode_batch(1, &[f32::INFINITY, 0.25, 0.5], None)
+            .unwrap();
+        assert_predictions(&results[0], &[("Owl", 2, 0.5), ("Wren", 1, 0.25)]);
+
+        // BirdNET v3.0 output is already sigmoided too.
+        let v30 = PredictionDecoder::new(config(ModelType::BirdNetV30, 3, None), labels(), 2, None)
+            .unwrap();
+        let results = v30
             .decode_batch(1, &[f32::INFINITY, 0.25, 0.5], None)
             .unwrap();
         assert_predictions(&results[0], &[("Owl", 2, 0.5), ("Wren", 1, 0.25)]);

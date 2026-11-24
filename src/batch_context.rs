@@ -63,7 +63,7 @@ use std::sync::MutexGuard;
 ///
 /// Currently supports:
 /// - `BirdNET` v2.4 (1 output)
-/// - `BirdNET` v3.0 (2 outputs)
+/// - `BirdNET` v3.0 (2 outputs, pre-sigmoided)
 /// - BSG Finland (1 output, pre-sigmoided)
 ///
 /// `Perch` v2 is not yet supported due to its complex 4-output structure.
