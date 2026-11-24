@@ -31,6 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   logits are still listed, at confidence 1.0 and 0.0. With `min_confidence`
   set, NaN was already filtered out and results are unchanged.
   ([#115](https://github.com/tphakala/rust-birdnet-onnx/issues/115))
+- **`birdnet-analyze` rejected negative `--lat` and `--lon`.** `--lat -33.8`
+  failed with "unexpected argument '-3' found", so southern latitudes and
+  western longitudes only worked written as `--lat=-33.8`. Both options now
+  take negative values.
+  ([#113](https://github.com/tphakala/rust-birdnet-onnx/issues/113))
 
 ## [2.0.0-rc.18] - 2026-11-24
 

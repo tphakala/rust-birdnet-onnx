@@ -108,11 +108,11 @@ struct Args {
     distribution_maps: Option<PathBuf>,
 
     /// Latitude for SDM adjustment (requires --migration and --distribution-maps)
-    #[arg(long)]
+    #[arg(long, allow_negative_numbers = true)]
     lat: Option<f32>,
 
     /// Longitude for SDM adjustment (requires --migration and --distribution-maps)
-    #[arg(long)]
+    #[arg(long, allow_negative_numbers = true)]
     lon: Option<f32>,
 
     /// Day of year for SDM adjustment (1-366, requires --migration and --distribution-maps)
@@ -968,8 +968,21 @@ const fn civil_from_days(days: i64) -> (i64, i64, i64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_utc_timestamp, seconds_since_epoch};
+    use super::{Args, format_utc_timestamp, seconds_since_epoch};
+    use clap::Parser;
     use std::time::{Duration, UNIX_EPOCH};
+
+    #[test]
+    fn test_args_accept_negative_lat_and_lon() {
+        let base = ["birdnet-analyze", "x.wav", "-m", "m.onnx", "-l", "l.txt"];
+        let parsed = Args::try_parse_from(base.iter().chain(&["--lat", "-33.8", "--lon", "-70.6"]))
+            .map(|args| (args.lat, args.lon))
+            .map_err(|err| err.to_string());
+        assert_eq!(parsed, Ok((Some(-33.8), Some(-70.6))));
+
+        // Other numeric options keep rejecting a leading minus.
+        assert!(Args::try_parse_from(base.iter().chain(&["--overlap", "-1"])).is_err());
+    }
 
     #[test]
     fn test_format_utc_timestamp_matches_reference_dates() {
