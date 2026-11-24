@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.18] - 2026-11-24
+
 ### Added
 
 - **Softmax rest logit for regional Perch v2 models.** A regional slice outputs
