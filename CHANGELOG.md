@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.19] - 2026-11-24
+
 ### Fixed
 
 - **Top-K could keep a lower-ranked class when confidences tied.** The
