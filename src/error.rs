@@ -49,6 +49,16 @@ pub enum Error {
         got: usize,
     },
 
+    /// A softmax rest logit was rejected: it is not finite, or the model
+    /// type does not use softmax.
+    #[error("invalid softmax rest logit {rest_logit}: {reason}")]
+    InvalidSoftmaxRestLogit {
+        /// The rejected value.
+        rest_logit: f32,
+        /// Why it was rejected.
+        reason: String,
+    },
+
     /// Model path was not provided to builder.
     #[error("model path required")]
     ModelPathRequired,

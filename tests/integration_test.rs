@@ -12,7 +12,7 @@
 
 #[cfg(feature = "load-dynamic")]
 use birdnet_onnx::init_runtime;
-use birdnet_onnx::{Classifier, InferenceOptions, ModelType, RangeFilter, Result};
+use birdnet_onnx::{Classifier, Error, InferenceOptions, ModelType, RangeFilter, Result};
 use std::path::Path;
 
 const FIXTURES_DIR: &str = "tests/fixtures";
@@ -88,6 +88,24 @@ fn test_birdnet_v24_load() -> Result<()> {
     assert_eq!(config.sample_rate, 48000);
     assert_eq!(config.sample_count, 144_000);
     assert!(config.embedding_dim.is_none());
+
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires model fixtures"]
+fn test_softmax_rest_logit_is_rejected_for_birdnet_v24() -> Result<()> {
+    if !fixtures_available() {
+        return Ok(());
+    }
+
+    let result = Classifier::builder()
+        .model_path(format!("{FIXTURES_DIR}/birdnet_v24.onnx"))
+        .labels_path(format!("{FIXTURES_DIR}/birdnet_v24_labels.txt"))
+        .softmax_rest_logit(9.75)
+        .build();
+
+    assert!(matches!(result, Err(Error::InvalidSoftmaxRestLogit { .. })));
 
     Ok(())
 }

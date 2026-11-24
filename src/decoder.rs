@@ -20,6 +20,10 @@ use crate::types::{ModelConfig, Prediction, PredictionResult};
 /// top-K species, applies the confidence threshold and slices embeddings per
 /// batch row.
 ///
+/// For softmax models, an optional rest logit can stand in for the classes a
+/// regional model dropped; see
+/// [`with_softmax_rest_logit`](Self::with_softmax_rest_logit).
+///
 /// # Example
 ///
 /// ```
@@ -50,6 +54,7 @@ pub struct PredictionDecoder {
     labels: Vec<String>,
     top_k: usize,
     min_confidence: Option<f32>,
+    softmax_rest_logit: Option<f32>,
 }
 
 impl PredictionDecoder {
@@ -103,6 +108,7 @@ impl PredictionDecoder {
             labels,
             top_k,
             min_confidence,
+            softmax_rest_logit: None,
         })
     }
 
@@ -156,6 +162,131 @@ impl PredictionDecoder {
     #[must_use]
     pub fn labels(&self) -> &[String] {
         &self.labels
+    }
+
+    /// Stand in for the classes a regional softmax model dropped.
+    ///
+    /// A regional Perch v2 file outputs a subset of the global model's
+    /// classes, so the plain softmax over the kept classes overstates each of
+    /// them. With a rest logit the softmax denominator also holds
+    /// `exp(rest_logit)`:
+    ///
+    /// ```text
+    /// confidence_i = exp(z_i) / (sum_j exp(z_j) + exp(rest_logit))
+    /// ```
+    ///
+    /// This is the `softmax-rest-logit` method of a regional model's manifest
+    /// entry (`score_calibration.rest_logit`). The global model has no such
+    /// entry and keeps the plain softmax. A second call replaces the value.
+    ///
+    /// Ranking is unchanged, because the calibration is monotonic in the
+    /// logit. `min_confidence` applies to the calibrated score. A class whose
+    /// logit is negative infinity is listed at confidence 0.0, even when
+    /// every logit in the row is negative infinity (without a rest logit such
+    /// a row has no predictions, because every softmax value is NaN).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidSoftmaxRestLogit`] if `rest_logit` is not
+    /// finite, or if the model type does not use softmax
+    /// ([`ModelType::PerchV2`](crate::ModelType::PerchV2) today).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use birdnet_onnx::{Error, ModelConfig, ModelType, PredictionDecoder};
+    ///
+    /// let config = ModelConfig {
+    ///     model_type: ModelType::PerchV2,
+    ///     sample_rate: 32_000,
+    ///     segment_duration: 5.0,
+    ///     sample_count: 160_000,
+    ///     num_species: 2,
+    ///     embedding_dim: None,
+    ///     predictions_index: 0,
+    ///     embeddings_index: None,
+    /// };
+    /// let labels = vec!["Robin".to_string(), "Wren".to_string()];
+    /// let decoder = PredictionDecoder::new(config.clone(), labels.clone(), 2, None)?
+    ///     .with_softmax_rest_logit(0.0)?;
+    ///
+    /// // Two equal logits and a rest logit of the same size share the mass.
+    /// let results = decoder.decode_batch(1, &[0.0, 0.0], None)?;
+    /// for prediction in &results[0].predictions {
+    ///     assert!((prediction.confidence - 1.0 / 3.0).abs() < 1e-6);
+    /// }
+    ///
+    /// // A consumer that reads the value from a manifest applies it when present.
+    /// let rest: Option<f32> = Some(9.75);
+    /// let decoder = PredictionDecoder::new(config.clone(), labels.clone(), 2, None)?;
+    /// let decoder = match rest {
+    ///     Some(r) => decoder.with_softmax_rest_logit(r)?,
+    ///     None => decoder,
+    /// };
+    /// assert_eq!(decoder.softmax_rest_logit(), Some(9.75));
+    ///
+    /// // A value that is not finite is rejected.
+    /// let decoder = PredictionDecoder::new(config.clone(), labels.clone(), 2, None)?;
+    /// assert!(decoder.with_softmax_rest_logit(f32::NAN).is_err());
+    ///
+    /// // So is a model that does not use softmax.
+    /// let sigmoid_config = ModelConfig {
+    ///     model_type: ModelType::BirdNetV24,
+    ///     ..config
+    /// };
+    /// let decoder = PredictionDecoder::new(sigmoid_config, labels, 2, None)?;
+    /// let err = decoder.with_softmax_rest_logit(1.0).unwrap_err();
+    /// assert!(matches!(err, Error::InvalidSoftmaxRestLogit { .. }));
+    /// # Ok::<(), birdnet_onnx::Error>(())
+    /// ```
+    pub fn with_softmax_rest_logit(mut self, rest_logit: f32) -> Result<Self> {
+        if !rest_logit.is_finite() {
+            return Err(Error::InvalidSoftmaxRestLogit {
+                rest_logit,
+                reason: "the value must be finite".into(),
+            });
+        }
+        if !self.config.model_type.output_needs_softmax() {
+            return Err(Error::InvalidSoftmaxRestLogit {
+                rest_logit,
+                reason: format!(
+                    "model type {:?} does not use softmax",
+                    self.config.model_type
+                ),
+            });
+        }
+        self.softmax_rest_logit = Some(rest_logit);
+        Ok(self)
+    }
+
+    /// The softmax rest logit set with
+    /// [`with_softmax_rest_logit`](Self::with_softmax_rest_logit), if any.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use birdnet_onnx::{ModelConfig, ModelType, PredictionDecoder};
+    ///
+    /// let config = ModelConfig {
+    ///     model_type: ModelType::PerchV2,
+    ///     sample_rate: 32_000,
+    ///     segment_duration: 5.0,
+    ///     sample_count: 160_000,
+    ///     num_species: 1,
+    ///     embedding_dim: None,
+    ///     predictions_index: 0,
+    ///     embeddings_index: None,
+    /// };
+    /// let decoder = PredictionDecoder::new(config, vec!["Robin".to_string()], 1, None)?;
+    /// assert_eq!(decoder.softmax_rest_logit(), None);
+    ///
+    /// let decoder = decoder.with_softmax_rest_logit(9.75)?;
+    /// assert_eq!(decoder.softmax_rest_logit(), Some(9.75));
+    /// # Ok::<(), birdnet_onnx::Error>(())
+    /// ```
+    #[must_use]
+    pub const fn softmax_rest_logit(&self) -> Option<f32> {
+        self.softmax_rest_logit
     }
 
     /// Number of predictions kept per segment.
@@ -303,12 +434,18 @@ impl PredictionDecoder {
         let mut predictions = if presigmoid {
             top_k_predictions_presigmoid(scores, &self.labels, wanted, self.min_confidence)
         } else if self.config.model_type.output_needs_softmax() {
-            top_k_predictions_softmax(scores, &self.labels, wanted, self.min_confidence)
+            top_k_predictions_softmax(
+                scores,
+                &self.labels,
+                wanted,
+                self.min_confidence,
+                self.softmax_rest_logit,
+            )
         } else {
             top_k_predictions(scores, &self.labels, wanted, self.min_confidence)
         };
         // Leave out a class whose own score was unusable and anything whose
-        // confidence is not finite (a softmax row with an infinite score).
+        // confidence is not finite (a softmax row with a positive-infinity score).
         predictions.retain(|prediction| {
             prediction.confidence.is_finite()
                 && original
@@ -591,6 +728,140 @@ mod tests {
             .decode_batch(1, &[f32::NAN, f32::NEG_INFINITY], None)
             .unwrap();
         assert_predictions(&results[0], &[("Wren", 1, 0.0)]);
+    }
+
+    #[test]
+    fn softmax_rest_logit_of_the_dropped_classes_reproduces_the_full_softmax() {
+        // A regional model keeps classes 0, 1 and 3 of a five-class output. The
+        // rest logit is the log-sum-exp of the two dropped logits, so the
+        // calibrated scores must equal the full five-class softmax.
+        let full: [f32; 5] = [2.0, 1.0, 0.5, -1.0, 3.0];
+        let kept = [full[0], full[1], full[3]];
+        let rest = (full[2].exp() + full[4].exp()).ln();
+        let max = full.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let denominator: f32 = full.iter().map(|&x| (x - max).exp()).sum();
+        let full_softmax = |x: f32| (x - max).exp() / denominator;
+        let want: Vec<Expected> = vec![
+            ("Robin", 0, full_softmax(full[0])),
+            ("Wren", 1, full_softmax(full[1])),
+            ("Owl", 2, full_softmax(full[3])),
+        ];
+
+        let decoder =
+            PredictionDecoder::new(config(ModelType::PerchV2, 3, None), labels(), 3, None)
+                .unwrap()
+                .with_softmax_rest_logit(rest)
+                .unwrap();
+        let results = decoder.decode_batch(1, &kept, None).unwrap();
+        assert_predictions(&results[0], &want);
+        assert_eq!(results[0].raw_scores, kept);
+
+        // The threshold sits between Wren's calibrated score (0.084) and its
+        // uncalibrated one (0.259), so only Robin survives if the threshold
+        // sees the calibrated value.
+        let thresholded =
+            PredictionDecoder::new(config(ModelType::PerchV2, 3, None), labels(), 3, Some(0.1))
+                .unwrap()
+                .with_softmax_rest_logit(rest)
+                .unwrap();
+        let results = thresholded.decode_batch(1, &kept, None).unwrap();
+        assert_predictions(&results[0], &want[..1]);
+    }
+
+    #[test]
+    fn with_softmax_rest_logit_rejects_non_softmax_models_and_non_finite_values() {
+        let cases = [
+            (
+                ModelType::BirdNetV24,
+                1.0,
+                "invalid softmax rest logit 1: model type BirdNetV24 does not use softmax",
+            ),
+            (
+                ModelType::BirdNetV30,
+                1.0,
+                "invalid softmax rest logit 1: model type BirdNetV30 does not use softmax",
+            ),
+            (
+                ModelType::PerchV2,
+                f32::NAN,
+                "invalid softmax rest logit NaN: the value must be finite",
+            ),
+            (
+                ModelType::PerchV2,
+                f32::INFINITY,
+                "invalid softmax rest logit inf: the value must be finite",
+            ),
+            (
+                ModelType::PerchV2,
+                f32::NEG_INFINITY,
+                "invalid softmax rest logit -inf: the value must be finite",
+            ),
+        ];
+
+        for (model_type, rest_logit, message) in cases {
+            let decoder =
+                PredictionDecoder::new(config(model_type, 3, None), labels(), 3, None).unwrap();
+            let err = decoder.with_softmax_rest_logit(rest_logit).unwrap_err();
+            assert!(
+                matches!(err, Error::InvalidSoftmaxRestLogit { .. }),
+                "{model_type:?}, {rest_logit}: unexpected error {err:?}"
+            );
+            assert_eq!(err.to_string(), message);
+        }
+    }
+
+    #[test]
+    fn softmax_rest_logit_handles_extreme_and_unusable_scores() {
+        let decoder = PredictionDecoder::new(
+            config(ModelType::PerchV2, 2, None),
+            labels()[..2].to_vec(),
+            2,
+            None,
+        )
+        .unwrap();
+        let decode = |rest_logit: f32, row: [f32; 2]| {
+            decoder
+                .clone()
+                .with_softmax_rest_logit(rest_logit)
+                .unwrap()
+                .decode_batch(1, &row, None)
+                .unwrap()
+                .remove(0)
+        };
+
+        // exp(95 - 1) overflows f32, so a rest logit left out of the max would
+        // turn both confidences into 0.0. With it in the max they are tiny but
+        // positive. Only the sign is asserted: subnormal results can differ
+        // in the last bits between libm builds.
+        let result = decode(95.0, [0.0, 1.0]);
+        let got: Vec<(&str, usize)> = result
+            .predictions
+            .iter()
+            .map(|p| (p.species.as_str(), p.index))
+            .collect();
+        assert_eq!(got, [("Wren", 1), ("Robin", 0)]);
+        assert!(result.predictions.iter().all(|p| p.confidence > 0.0));
+        assert!(result.predictions[0].confidence > result.predictions[1].confidence);
+
+        // Every class has probability exp(-inf) = 0 and the rest holds all the
+        // mass: both are listed at 0.0. The confidences tie, so compare the
+        // set of indices, not their order.
+        let result = decode(0.0, [f32::NEG_INFINITY, f32::NEG_INFINITY]);
+        let mut indices: Vec<usize> = result.predictions.iter().map(|p| p.index).collect();
+        indices.sort_unstable();
+        assert_eq!(indices, [0, 1]);
+        assert!(
+            result
+                .predictions
+                .iter()
+                .all(|p| p.confidence.abs() < TOLERANCE)
+        );
+
+        // The NaN class is cleaned to a finite 0.0 with a rest logit, so only
+        // the unusable-score guard keeps it out. It stays out of the
+        // denominator too: 1 / (1 + 1) is 0.5, not 1 / 3.
+        let result = decode(0.0, [0.0, f32::NAN]);
+        assert_predictions(&result, &[("Robin", 0, 0.5)]);
     }
 
     #[test]

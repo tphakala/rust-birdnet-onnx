@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.18] - 2026-11-24
+
+### Added
+
+- **Softmax rest logit for regional Perch v2 models.** A regional slice outputs
+  only some of the global model's classes, so the plain softmax overstates
+  each kept class. `ClassifierBuilder::softmax_rest_logit` and
+  `PredictionDecoder::with_softmax_rest_logit` (with the getter
+  `PredictionDecoder::softmax_rest_logit`) take the `rest_logit` of the model's
+  `softmax-rest-logit` score calibration and add `exp(rest_logit)` to the
+  softmax denominator: `exp(z_i) / (sum_j exp(z_j) + exp(rest_logit))`. Without
+  one, scores are unchanged. A value that is not finite, or one given for a
+  model that does not use softmax, is rejected with the new
+  `Error::InvalidSoftmaxRestLogit`, so an exhaustive `match` on `Error` needs
+  an arm for it. `birdnet-analyze` gains `--softmax-rest-logit`.
+  ([#110](https://github.com/tphakala/rust-birdnet-onnx/issues/110))
+
 ### Fixed
 
 - **`BirdNET` v3.0 scores went through sigmoid twice.** The v3.0 ONNX exports
